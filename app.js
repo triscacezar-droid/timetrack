@@ -4,6 +4,8 @@ const DEFAULT_ACTIVITIES = ["Work", "Read", "Exercise", "Break"];
 let accessToken = null;
 let tokenClient = null;
 
+const BELL_INTERVAL_SECONDS = 15 * 60;
+
 let timer = {
   state: "idle", // idle | running | paused
   totalSeconds: 0,
@@ -11,6 +13,8 @@ let timer = {
   activity: null,
   startedAt: null, // Date when the current run began (for logging real start time)
   intervalId: null,
+  bellsEnabled: false,
+  lastBellMark: 0, // how many 15-min marks have already rung this run
 };
 
 // ---------- Activities (stored locally, purely for the dropdown UI) ----------
@@ -230,6 +234,8 @@ function startTimer() {
   timer.totalSeconds = Math.round(minutes * 60);
   timer.remainingSeconds = timer.totalSeconds;
   timer.startedAt = new Date();
+  timer.bellsEnabled = document.getElementById("meditation-bells-toggle").checked;
+  timer.lastBellMark = 0;
   setStatus("");
   setTimerButtons();
   updateTimerDisplay();
@@ -242,6 +248,7 @@ function tick() {
     if (timer.state !== "running") return;
     timer.remainingSeconds -= 1;
     updateTimerDisplay();
+    checkMeditationBell();
     if (timer.remainingSeconds <= 0) {
       clearInterval(timer.intervalId);
       completeTimer();
@@ -303,6 +310,37 @@ async function logAndReset(start, end, durationMin) {
   } catch (err) {
     setStatus("Failed to log entry: " + err.message);
   }
+}
+
+function checkMeditationBell() {
+  if (!timer.bellsEnabled) return;
+  const elapsed = timer.totalSeconds - timer.remainingSeconds;
+  const mark = Math.floor(elapsed / BELL_INTERVAL_SECONDS);
+  if (mark > timer.lastBellMark) {
+    timer.lastBellMark = mark;
+    if (mark > 0 && timer.remainingSeconds > 0) {
+      ringBell(mark);
+    }
+  }
+}
+
+function ringBell(times) {
+  try {
+    const ctx = new (window.AudioContext || window.webkitAudioContext)();
+    for (let i = 0; i < times; i++) {
+      const startTime = ctx.currentTime + i * 1.2;
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.frequency.value = 528;
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+      gain.gain.setValueAtTime(0.0001, startTime);
+      gain.gain.exponentialRampToValueAtTime(0.4, startTime + 0.02);
+      gain.gain.exponentialRampToValueAtTime(0.0001, startTime + 1.0);
+      osc.start(startTime);
+      osc.stop(startTime + 1.0);
+    }
+  } catch {}
 }
 
 function notifyDone() {

@@ -123,6 +123,9 @@ select, input[type="number"], input[type="text"], input[type="date"], input[type
 .preset-buttons { display: flex; gap: 6px; }
 .preset-buttons button { padding: 6px 10px; }
 
+.hint { color: var(--muted); font-size: 12px; }
+#meditation-bells-toggle { flex: none; width: 18px; height: 18px; }
+
 .timer-controls {
   display: flex;
   gap: 10px;

@@ -460,20 +460,33 @@ function setTimerButtons() {
   stop.classList.toggle("hidden", timer.state === "idle");
 }
 
+function getDurationSeconds() {
+  const hours = parseInt(document.getElementById("duration-hours").value) || 0;
+  const minutes = parseInt(document.getElementById("duration-minutes").value) || 0;
+  const seconds = parseInt(document.getElementById("duration-seconds").value) || 0;
+  return hours * 3600 + minutes * 60 + seconds;
+}
+
+function setDurationMinutes(minutes) {
+  document.getElementById("duration-hours").value = Math.floor(minutes / 60);
+  document.getElementById("duration-minutes").value = minutes % 60;
+  document.getElementById("duration-seconds").value = 0;
+}
+
 function startTimer() {
   const activity = document.getElementById("activity-select").value;
-  const minutes = parseFloat(document.getElementById("duration-input").value);
+  const totalSeconds = getDurationSeconds();
   if (!activity) {
     setStatus("Pick an activity first.");
     return;
   }
-  if (!minutes || minutes <= 0) {
-    setStatus("Enter a valid number of minutes.");
+  if (!totalSeconds || totalSeconds <= 0) {
+    setStatus("Enter a valid countdown duration.");
     return;
   }
   timer.state = "running";
   timer.activity = activity;
-  timer.totalSeconds = Math.round(minutes * 60);
+  timer.totalSeconds = totalSeconds;
   timer.remainingSeconds = timer.totalSeconds;
   timer.startedAt = new Date();
 
@@ -690,7 +703,7 @@ document.addEventListener("DOMContentLoaded", () => {
   document.getElementById("stop-btn").onclick = stopTimer;
 
   document.querySelectorAll(".preset-buttons button").forEach((btn) => {
-    btn.onclick = () => (document.getElementById("duration-input").value = btn.dataset.min);
+    btn.onclick = () => setDurationMinutes(parseInt(btn.dataset.min));
   });
 
   document.getElementById("manual-form").addEventListener("submit", handleManualSubmit);

@@ -223,7 +223,12 @@ function renderRuleRow(preset, presets, rule, ruleIdx) {
     rule.sound = soundSelect.value;
     saveBellPresets(presets);
   };
-  soundField.append(soundLabel, soundSelect);
+  const previewBtn = document.createElement("button");
+  previewBtn.type = "button";
+  previewBtn.textContent = "▶ Preview";
+  previewBtn.title = "Play this sound";
+  previewBtn.onclick = () => ringBell(1, soundSelect.value);
+  soundField.append(soundLabel, soundSelect, previewBtn);
 
   const escalateField = document.createElement("div");
   escalateField.className = "field";

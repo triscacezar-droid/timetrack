@@ -1,0 +1,113 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>TimeTrack</title>
+<link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <div class="app">
+    <header>
+      <h1>TimeTrack</h1>
+      <div id="auth-area">
+        <button id="signin-btn">Sign in with Google</button>
+        <div id="signed-in" class="hidden">
+          <span id="user-email"></span>
+          <button id="signout-btn">Sign out</button>
+        </div>
+      </div>
+    </header>
+
+    <div id="setup-banner" class="banner hidden">
+      <strong>Setup needed:</strong> open <code>config.js</code> and fill in your Google OAuth Client ID
+      and Spreadsheet ID. See <code>README.md</code> for step-by-step instructions.
+    </div>
+
+    <main>
+      <section class="card timer-card">
+        <div class="timer-display" id="timer-display">00:00:00</div>
+
+        <div class="field-row">
+          <label for="activity-select">Activity</label>
+          <select id="activity-select"></select>
+          <button id="manage-activities-btn" title="Manage activities">⚙</button>
+        </div>
+
+        <div class="field-row">
+          <label for="duration-input">Countdown (minutes)</label>
+          <input type="number" id="duration-input" min="1" value="25" />
+          <div class="preset-buttons">
+            <button data-min="5">5</button>
+            <button data-min="15">15</button>
+            <button data-min="25">25</button>
+            <button data-min="60">60</button>
+          </div>
+        </div>
+
+        <div class="timer-controls">
+          <button id="start-btn" class="primary">Start</button>
+          <button id="pause-btn" class="hidden">Pause</button>
+          <button id="resume-btn" class="hidden">Resume</button>
+          <button id="stop-btn" class="hidden danger">Stop &amp; Log</button>
+        </div>
+
+        <div id="status-msg" class="status"></div>
+      </section>
+
+      <section class="card manual-card">
+        <h2>Add entry manually</h2>
+        <form id="manual-form">
+          <div class="field-row">
+            <label for="manual-activity">Activity</label>
+            <select id="manual-activity"></select>
+          </div>
+          <div class="field-row">
+            <label for="manual-date">Date</label>
+            <input type="date" id="manual-date" required />
+          </div>
+          <div class="field-row two-col">
+            <div>
+              <label for="manual-start">Start time</label>
+              <input type="time" id="manual-start" required />
+            </div>
+            <div>
+              <label for="manual-end">End time</label>
+              <input type="time" id="manual-end" required />
+            </div>
+          </div>
+          <div class="field-row">
+            <label for="manual-notes">Notes (optional)</label>
+            <input type="text" id="manual-notes" placeholder="What were you doing?" />
+          </div>
+          <button type="submit" class="primary">Add entry</button>
+        </form>
+      </section>
+
+      <section class="card log-card">
+        <div class="log-header">
+          <h2>Recent entries</h2>
+          <button id="refresh-log-btn">Refresh</button>
+        </div>
+        <div id="log-list" class="log-list"></div>
+      </section>
+    </main>
+
+    <div id="manage-modal" class="modal hidden">
+      <div class="modal-content">
+        <h2>Manage activities</h2>
+        <ul id="activities-list"></ul>
+        <div class="field-row">
+          <input type="text" id="new-activity-input" placeholder="New activity name" />
+          <button id="add-activity-btn">Add</button>
+        </div>
+        <button id="close-modal-btn">Done</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="https://accounts.google.com/gsi/client" async defer></script>
+  <script src="config.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>

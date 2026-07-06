@@ -50,9 +50,9 @@
         </div>
 
         <div class="field-row">
-          <label for="meditation-bells-toggle">Meditation bells</label>
-          <input type="checkbox" id="meditation-bells-toggle" />
-          <span class="hint">1 bell at 15m, 2 at 30m, 3 at 45m…</span>
+          <label for="bell-preset-select">Bell preset</label>
+          <select id="bell-preset-select"></select>
+          <button id="manage-presets-btn" title="Manage bell presets">⚙</button>
         </div>
 
         <div class="timer-controls">
@@ -112,6 +112,16 @@
           <button id="add-activity-btn">Add</button>
         </div>
         <button id="close-modal-btn">Done</button>
+      </div>
+    </div>
+
+    <div id="bell-presets-modal" class="modal hidden">
+      <div class="modal-content wide">
+        <h2>Bell presets</h2>
+        <div id="presets-list"></div>
+        <button id="add-preset-btn">+ New preset</button>
+        <hr />
+        <button id="close-presets-modal-btn">Done</button>
       </div>
     </div>
   </div>

@@ -84,3 +84,32 @@ The first time you log an entry the app will add a header row
 - Deploying: since it's static files, GitHub Pages, Netlify, Vercel (static),
   or any static host works — just remember to add that origin to the OAuth
   client's Authorized JavaScript origins.
+
+## Hosting on GitHub Pages
+
+This repo includes `.github/workflows/deploy.yml`, which deploys to GitHub
+Pages on every push to `master`. It generates `config.js` at build time from
+repo secrets, so your real Client ID / Spreadsheet ID never sit in git
+history — only the workflow-generated file on the live site has them.
+
+1. Set the repo secrets (Settings → Secrets and variables → Actions → New
+   repository secret, or via `gh secret set`):
+   - `TIMETRACK_CLIENT_ID`
+   - `TIMETRACK_SPREADSHEET_ID`
+   - `TIMETRACK_SHEET_NAME` (optional, defaults to `Sheet1`)
+
+   ```bash
+   gh secret set TIMETRACK_CLIENT_ID --body "xxxxxxxx.apps.googleusercontent.com"
+   gh secret set TIMETRACK_SPREADSHEET_ID --body "your-spreadsheet-id"
+   ```
+
+2. Enable Pages once: Settings → Pages → Build and deployment → Source →
+   **GitHub Actions**.
+
+3. Push to `master` (or re-run the workflow from the Actions tab). The site
+   will be live at `https://<your-username>.github.io/timetrack/`.
+
+4. Add that exact URL to the OAuth client's Authorized JavaScript origins
+   in Google Cloud Console (Credentials → your client → Authorized
+   JavaScript origins), otherwise sign-in will fail with a redirect/origin
+   mismatch error.

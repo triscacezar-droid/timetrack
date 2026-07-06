@@ -417,4 +417,8 @@ document.addEventListener("DOMContentLoaded", () => {
   if ("Notification" in window && Notification.permission === "default") {
     Notification.requestPermission();
   }
+
+  if ("serviceWorker" in navigator) {
+    navigator.serviceWorker.register("sw.js").catch(() => {});
+  }
 });

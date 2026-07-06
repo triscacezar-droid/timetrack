@@ -1,6 +1,47 @@
 const ACTIVITIES_KEY = "timetrack.activities";
 const DEFAULT_ACTIVITIES = ["Work", "Read", "Exercise", "Break", "Meditate"];
 
+const THEME_KEY = "timetrack.theme";
+const THEMES = [
+  { id: "dark", label: "Dark (default)" },
+  { id: "light", label: "Light" },
+  { id: "dracula", label: "Dracula" },
+  { id: "nord", label: "Nord" },
+  { id: "gruvbox-dark", label: "Gruvbox Dark" },
+  { id: "gruvbox-light", label: "Gruvbox Light" },
+  { id: "solarized-dark", label: "Solarized Dark" },
+  { id: "solarized-light", label: "Solarized Light" },
+  { id: "catppuccin-mocha", label: "Catppuccin Mocha" },
+  { id: "catppuccin-latte", label: "Catppuccin Latte" },
+  { id: "tokyo-night", label: "Tokyo Night" },
+  { id: "monokai", label: "Monokai" },
+  { id: "rose-pine", label: "Rosé Pine" },
+  { id: "github-light", label: "GitHub Light" },
+  { id: "sepia", label: "Sepia" },
+  { id: "cyberpunk", label: "Cyberpunk" },
+  { id: "black-and-white", label: "Black & White" },
+];
+
+function applyTheme(themeId) {
+  document.documentElement.setAttribute("data-theme", themeId);
+  localStorage.setItem(THEME_KEY, themeId);
+}
+
+function initTheme() {
+  const select = document.getElementById("theme-select");
+  for (const theme of THEMES) {
+    const opt = document.createElement("option");
+    opt.value = theme.id;
+    opt.textContent = theme.label;
+    select.appendChild(opt);
+  }
+  const saved = localStorage.getItem(THEME_KEY);
+  const initial = saved || (window.matchMedia("(prefers-color-scheme: light)").matches ? "light" : "dark");
+  select.value = initial;
+  applyTheme(initial);
+  select.onchange = () => applyTheme(select.value);
+}
+
 const BELL_PRESETS_KEY = "timetrack.bellPresets";
 const SOUND_OPTIONS = [
   { id: "bell", label: "Bell" },
@@ -519,9 +560,9 @@ async function logAndReset(start, end, durationMin) {
 }
 
 const SOUND_PROFILES = {
-  bell: { freq: 528, decay: 1.0, gap: 1.2 },
-  chime: { freq: 1046, decay: 0.6, gap: 0.8 },
-  gong: { freq: 220, decay: 2.2, gap: 2.6 },
+  bell: { freq: 528, decay: 2.8, gap: 3.2 },
+  chime: { freq: 1046, decay: 1.8, gap: 2.2 },
+  gong: { freq: 220, decay: 4.5, gap: 5.0 },
 };
 
 function checkBellRules() {
@@ -630,6 +671,7 @@ function checkConfig() {
 // ---------- Wire up ----------
 
 document.addEventListener("DOMContentLoaded", () => {
+  initTheme();
   renderActivityOptions();
   renderBellPresetOptions();
   document.getElementById("manual-date").value = formatDate(new Date());

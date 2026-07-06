@@ -1,3 +1,4 @@
+/* Default: follow system preference until a theme is explicitly picked. */
 :root {
   --bg: #0f1115;
   --card: #1a1d24;
@@ -20,6 +21,76 @@
   }
 }
 
+/* Named themes — override system preference once selected (data-theme on <html>). */
+:root[data-theme="dark"] {
+  --bg: #0f1115; --card: #1a1d24; --border: #2a2e38; --text: #e8e9ec;
+  --muted: #9198a8; --accent: #5b8cff; --danger: #ff5b6a; color-scheme: dark;
+}
+:root[data-theme="light"] {
+  --bg: #f5f6f8; --card: #ffffff; --border: #e2e4e9; --text: #1a1d24;
+  --muted: #5f6673; --accent: #5b8cff; --danger: #ff5b6a; color-scheme: light;
+}
+:root[data-theme="dracula"] {
+  --bg: #282a36; --card: #343746; --border: #44475a; --text: #f8f8f2;
+  --muted: #6272a4; --accent: #bd93f9; --danger: #ff5555; color-scheme: dark;
+}
+:root[data-theme="nord"] {
+  --bg: #2e3440; --card: #3b4252; --border: #4c566a; --text: #eceff4;
+  --muted: #d8dee9; --accent: #88c0d0; --danger: #bf616a; color-scheme: dark;
+}
+:root[data-theme="gruvbox-dark"] {
+  --bg: #282828; --card: #3c3836; --border: #504945; --text: #ebdbb2;
+  --muted: #a89984; --accent: #fabd2f; --danger: #fb4934; color-scheme: dark;
+}
+:root[data-theme="gruvbox-light"] {
+  --bg: #fbf1c7; --card: #f2e5bc; --border: #d5c4a1; --text: #3c3836;
+  --muted: #7c6f64; --accent: #d79921; --danger: #cc241d; color-scheme: light;
+}
+:root[data-theme="solarized-dark"] {
+  --bg: #002b36; --card: #073642; --border: #586e75; --text: #eee8d5;
+  --muted: #93a1a1; --accent: #268bd2; --danger: #dc322f; color-scheme: dark;
+}
+:root[data-theme="solarized-light"] {
+  --bg: #fdf6e3; --card: #eee8d5; --border: #93a1a1; --text: #073642;
+  --muted: #657b83; --accent: #268bd2; --danger: #dc322f; color-scheme: light;
+}
+:root[data-theme="catppuccin-mocha"] {
+  --bg: #1e1e2e; --card: #313244; --border: #45475a; --text: #cdd6f4;
+  --muted: #a6adc8; --accent: #cba6f7; --danger: #f38ba8; color-scheme: dark;
+}
+:root[data-theme="catppuccin-latte"] {
+  --bg: #eff1f5; --card: #e6e9ef; --border: #ccd0da; --text: #4c4f69;
+  --muted: #6c6f85; --accent: #8839ef; --danger: #d20f39; color-scheme: light;
+}
+:root[data-theme="tokyo-night"] {
+  --bg: #1a1b26; --card: #24283b; --border: #414868; --text: #c0caf5;
+  --muted: #565f89; --accent: #7aa2f7; --danger: #f7768e; color-scheme: dark;
+}
+:root[data-theme="monokai"] {
+  --bg: #272822; --card: #3e3d32; --border: #75715e; --text: #f8f8f2;
+  --muted: #a1a091; --accent: #a6e22e; --danger: #f92672; color-scheme: dark;
+}
+:root[data-theme="rose-pine"] {
+  --bg: #191724; --card: #1f1d2e; --border: #26233a; --text: #e0def4;
+  --muted: #908caa; --accent: #c4a7e7; --danger: #eb6f92; color-scheme: dark;
+}
+:root[data-theme="github-light"] {
+  --bg: #ffffff; --card: #f6f8fa; --border: #d0d7de; --text: #1f2328;
+  --muted: #656d76; --accent: #0969da; --danger: #d1242f; color-scheme: light;
+}
+:root[data-theme="sepia"] {
+  --bg: #f4ecd8; --card: #ece0c4; --border: #d8c9a3; --text: #5b4636;
+  --muted: #8a7862; --accent: #a0714b; --danger: #b5533c; color-scheme: light;
+}
+:root[data-theme="cyberpunk"] {
+  --bg: #0d0221; --card: #1a0b3d; --border: #ff2ec4; --text: #00fff9;
+  --muted: #b967ff; --accent: #ff2ec4; --danger: #ff003c; color-scheme: dark;
+}
+:root[data-theme="black-and-white"] {
+  --bg: #000000; --card: #111111; --border: #333333; --text: #ffffff;
+  --muted: #999999; --accent: #ffffff; --danger: #ff5b6a; color-scheme: dark;
+}
+
 * { box-sizing: border-box; }
 
 body {
@@ -40,6 +111,23 @@ header {
   align-items: center;
   justify-content: space-between;
   margin-bottom: 16px;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+#auth-area {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+#theme-select {
+  font: inherit;
+  background: var(--card);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 8px 10px;
 }
 
 h1 { font-size: 22px; margin: 0; }

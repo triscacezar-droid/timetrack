@@ -134,8 +134,10 @@ never touch git history, even though the repo itself is public.
    it early and log the elapsed time instead of the full duration.
 5. When the timer reaches zero, it logs the full duration automatically and
    plays a sound.
-6. Either way, you'll get a quick **quality picker** (0–5) — tap a number to
-   rate the session, or **Skip** if you don't care to.
+6. Either way, the entry is saved to your Sheet immediately — you don't need
+   to do anything else. A quick **quality picker** (0–5) also appears; tap a
+   number to rate the session (patches the entry that's already saved), or
+   ignore it if you don't care to rate it.
 
 Every completed or manually-stopped run appends one row to your Google
 Sheet: date, activity, start time, end time, duration, timezone, and quality

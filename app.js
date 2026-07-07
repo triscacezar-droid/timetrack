@@ -494,10 +494,13 @@ async function ensureHeaderRow() {
   }
 }
 
+// Returns the row number the entry landed on (parsed from the Sheets API
+// response), so a quality rating chosen after the fact can be patched in
+// without re-sending the whole row.
 async function appendEntry({ date, activity, start, end, durationMin, notes, timezone, quality }) {
   await ensureHeaderRow();
   const range = `${CONFIG.SHEET_NAME}!A:H`;
-  await sheetsFetch(`/values/${encodeURIComponent(range)}:append?valueInputOption=USER_ENTERED`, {
+  const response = await sheetsFetch(`/values/${encodeURIComponent(range)}:append?valueInputOption=USER_ENTERED`, {
     method: "POST",
     body: JSON.stringify({
       range,
@@ -506,6 +509,18 @@ async function appendEntry({ date, activity, start, end, durationMin, notes, tim
   });
   setStatus(`Logged "${activity}" — ${durationMin} min.`);
   refreshLog();
+  const updatedRange = response && response.updates && response.updates.updatedRange;
+  const match = updatedRange && updatedRange.match(/![A-Z]+(\d+):/);
+  return { rowNumber: match ? parseInt(match[1]) : null };
+}
+
+async function updateEntryQuality(rowNumber, quality) {
+  if (!rowNumber) return;
+  const range = `${CONFIG.SHEET_NAME}!H${rowNumber}:H${rowNumber}`;
+  await sheetsFetch(`/values/${encodeURIComponent(range)}?valueInputOption=USER_ENTERED`, {
+    method: "PUT",
+    body: JSON.stringify({ range, values: [[quality]] }),
+  });
 }
 
 async function fetchRecentEntries(limit = 10) {
@@ -657,7 +672,7 @@ async function completeTimer() {
   setTimerButtons();
   updateTimerDisplay();
   notifyDone();
-  stageTimerEntry(start, end, durationMin);
+  await stageTimerEntry(start, end, durationMin);
 }
 
 async function stopTimer() {
@@ -670,31 +685,26 @@ async function stopTimer() {
   timer.remainingSeconds = 0;
   setTimerButtons();
   updateTimerDisplay();
-  stageTimerEntry(start, end, durationMin);
+  await stageTimerEntry(start, end, durationMin);
 }
 
-let pendingTimerEntry = null;
+let pendingQualityRow = null;
 
-function stageTimerEntry(start, end, durationMin) {
+// Logs the entry immediately — never silently drops it waiting on a quality
+// pick — then shows the quality picker as an optional follow-up patch.
+async function stageTimerEntry(start, end, durationMin) {
   const activity = timer.activity;
   timer.activity = null;
   timer.startedAt = null;
-  pendingTimerEntry = { start, end, durationMin, activity };
-  document.getElementById("quality-picker").classList.remove("hidden");
-}
+  pendingQualityRow = null;
 
-async function finalizeTimerEntry(quality) {
-  document.getElementById("quality-picker").classList.add("hidden");
-  if (!pendingTimerEntry) return;
-  const { start, end, durationMin, activity } = pendingTimerEntry;
-  pendingTimerEntry = null;
   if (!accessToken) {
     setStatus("Not signed in — entry not saved. Sign in with Google to log time.");
     return;
   }
   const timezone = document.getElementById("manual-timezone").value || getBrowserTimezone();
   try {
-    await appendEntry({
+    const { rowNumber } = await appendEntry({
       date: formatDate(start),
       activity,
       start: formatTime(start),
@@ -702,10 +712,25 @@ async function finalizeTimerEntry(quality) {
       durationMin,
       notes: "",
       timezone,
-      quality,
+      quality: "",
     });
+    pendingQualityRow = rowNumber;
+    document.getElementById("quality-picker").classList.remove("hidden");
   } catch (err) {
     setStatus("Failed to log entry: " + err.message);
+  }
+}
+
+async function finalizeTimerEntry(quality) {
+  document.getElementById("quality-picker").classList.add("hidden");
+  const rowNumber = pendingQualityRow;
+  pendingQualityRow = null;
+  if (!rowNumber || quality === "") return;
+  try {
+    await updateEntryQuality(rowNumber, quality);
+    refreshLog();
+  } catch (err) {
+    setStatus("Entry logged, but failed to save quality rating: " + err.message);
   }
 }
 

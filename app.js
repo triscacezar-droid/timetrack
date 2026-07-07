@@ -527,20 +527,23 @@ async function fetchRecentEntries(limit = 10) {
   const range = `${CONFIG.SHEET_NAME}!A2:H`;
   const data = await sheetsFetch(`/values/${encodeURIComponent(range)}`);
   const rows = data.values || [];
-  return rows.slice(-limit).reverse();
+  // Row 1 is the header, so data row i (0-based) lives on sheet row i+2.
+  const withRowNumbers = rows.map((row, i) => ({ row, rowNumber: i + 2 }));
+  return withRowNumbers.slice(-limit).reverse();
 }
 
 async function refreshLog() {
   const listEl = document.getElementById("log-list");
   if (!accessToken) return;
   try {
-    const rows = await fetchRecentEntries();
+    const entries = await fetchRecentEntries();
     listEl.innerHTML = "";
-    if (rows.length === 0) {
+    if (entries.length === 0) {
       listEl.innerHTML = '<div class="status">No entries yet.</div>';
       return;
     }
-    for (const [date, activity, start, end, duration, notes, timezone, quality] of rows) {
+    for (const { row, rowNumber } of entries) {
+      const [date, activity, start, end, duration, notes, timezone, quality] = row;
       const tz = timezone || getBrowserTimezone();
       let displayDate = date, displayStart = start, displayEnd = end;
       try {
@@ -556,18 +559,50 @@ async function refreshLog() {
       }
       const div = document.createElement("div");
       div.className = "log-entry";
-      div.innerHTML = `
-        <div>
-          <div class="activity">${escapeHtml(activity || "")}${quality !== undefined && quality !== "" ? ` <span class="quality-badge">★${escapeHtml(quality)}</span>` : ""}</div>
-          <div class="meta">${escapeHtml(displayDate || "")} · ${escapeHtml(displayStart || "")}–${escapeHtml(displayEnd || "")}${tz ? " · " + escapeHtml(tz) : ""}${notes ? " · " + escapeHtml(notes) : ""}</div>
-        </div>
-        <div class="meta">${escapeHtml(duration || "")} min</div>
+
+      const infoDiv = document.createElement("div");
+      infoDiv.innerHTML = `
+        <div class="activity">${escapeHtml(activity || "")}</div>
+        <div class="meta">${escapeHtml(displayDate || "")} · ${escapeHtml(displayStart || "")}–${escapeHtml(displayEnd || "")}${tz ? " · " + escapeHtml(tz) : ""}${notes ? " · " + escapeHtml(notes) : ""}</div>
       `;
+
+      const rightDiv = document.createElement("div");
+      rightDiv.className = "log-entry-right";
+      const durationSpan = document.createElement("div");
+      durationSpan.className = "meta";
+      durationSpan.textContent = `${duration || ""} min`;
+      const qualityRow = renderQualityMiniButtons(rowNumber, quality);
+      rightDiv.append(durationSpan, qualityRow);
+
+      div.append(infoDiv, rightDiv);
       listEl.appendChild(div);
     }
   } catch (err) {
     setStatus("Could not load log: " + err.message);
   }
+}
+
+function renderQualityMiniButtons(rowNumber, currentQuality) {
+  const wrap = document.createElement("div");
+  wrap.className = "quality-buttons mini";
+  for (let i = 0; i <= 5; i++) {
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.textContent = String(i);
+    if (String(currentQuality) === String(i)) btn.classList.add("selected");
+    btn.onclick = async () => {
+      const newQuality = String(currentQuality) === String(i) ? "" : String(i);
+      wrap.querySelectorAll("button").forEach((b) => b.classList.remove("selected"));
+      if (newQuality !== "") btn.classList.add("selected");
+      try {
+        await updateEntryQuality(rowNumber, newQuality);
+      } catch (err) {
+        setStatus("Failed to update quality: " + err.message);
+      }
+    };
+    wrap.appendChild(btn);
+  }
+  return wrap;
 }
 
 function escapeHtml(str) {

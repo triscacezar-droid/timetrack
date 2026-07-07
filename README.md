@@ -213,7 +213,10 @@ Screen**.
 
 The "Recent entries" section shows the last 10 rows from your Sheet, so you
 can sanity-check what got logged without leaving the app. Hit **Refresh** to
-reload it.
+reload it. Each entry has its own 0–5 quality buttons — tap one to set or
+change the rating on that entry (tap the currently-selected number again to
+clear it); it updates the Quality cell for that row directly, no need to go
+back and re-log anything.
 
 ---
 

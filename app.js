@@ -92,7 +92,7 @@ function initManualTimezone() {
   select.value = initial;
   select.onchange = () => {
     localStorage.setItem(TIMEZONE_KEY, select.value);
-    updateManualEndPreview();
+    syncManualTimeFields("start");
     renderTimeline();
   };
 }
@@ -221,14 +221,18 @@ function renderManageModal() {
 
 // ---------- Bell presets (stored locally) ----------
 
+function clonePresets(presets) {
+  return JSON.parse(JSON.stringify(presets));
+}
+
 function loadBellPresets() {
   const raw = localStorage.getItem(BELL_PRESETS_KEY);
-  if (!raw) return structuredClone(DEFAULT_BELL_PRESETS);
+  if (!raw) return clonePresets(DEFAULT_BELL_PRESETS);
   try {
     const parsed = JSON.parse(raw);
-    return Array.isArray(parsed) ? parsed : structuredClone(DEFAULT_BELL_PRESETS);
+    return Array.isArray(parsed) ? parsed : clonePresets(DEFAULT_BELL_PRESETS);
   } catch {
-    return structuredClone(DEFAULT_BELL_PRESETS);
+    return clonePresets(DEFAULT_BELL_PRESETS);
   }
 }
 
@@ -789,21 +793,40 @@ function minutesToTimeStr(mins) {
   return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}`;
 }
 
-function updateManualEndPreview() {
+// Start, Duration, and End are three views of the same interval — editing
+// any one recomputes the other two. `source` says which field the user just
+// touched, so we know which pair to derive from.
+function syncManualTimeFields(source) {
   const timezone = document.getElementById("manual-timezone").value || getBrowserTimezone();
   const date = document.getElementById("manual-date").value;
-  const startStr = document.getElementById("manual-start").value;
-  const durationMin = parseInt(document.getElementById("manual-duration").value) || 0;
-  const preview = document.getElementById("manual-end-preview");
-  if (!date || !startStr || !durationMin) {
-    preview.textContent = "";
-    return;
+  const startInput = document.getElementById("manual-start");
+  const durationInput = document.getElementById("manual-duration");
+  const endInput = document.getElementById("manual-end");
+  const badge = document.getElementById("manual-end-badge");
+
+  if (!date || !startInput.value) return;
+
+  if (source === "end") {
+    const startUtc = zonedToUtc(date, startInput.value, timezone);
+    let endUtc = zonedToUtc(date, endInput.value || startInput.value, timezone);
+    if (endUtc <= startUtc) endUtc = new Date(endUtc.getTime() + 24 * 3600000);
+    durationInput.value = Math.max(1, Math.round((endUtc - startUtc) / 60000));
+  } else {
+    // source is "start", "date", "duration", or a timeline drag — duration
+    // is authoritative, recompute the end time from start + duration.
+    const durationMin = parseInt(durationInput.value) || 0;
+    const startUtc = zonedToUtc(date, startInput.value, timezone);
+    const endUtc = new Date(startUtc.getTime() + durationMin * 60000);
+    const endLocal = utcToZonedParts(endUtc, timezone);
+    endInput.value = endLocal.time;
   }
-  const startUtc = zonedToUtc(date, startStr, timezone);
+
+  // Recompute the +1 day badge from whatever the fields now settle on.
+  const startUtc = zonedToUtc(date, startInput.value, timezone);
+  const durationMin = parseInt(durationInput.value) || 0;
   const endUtc = new Date(startUtc.getTime() + durationMin * 60000);
   const endLocal = utcToZonedParts(endUtc, timezone);
-  const crossesDay = endLocal.date !== date;
-  preview.textContent = `Ends ${endLocal.time}${crossesDay ? " (+1 day)" : ""} · ${timezone}`;
+  badge.textContent = endLocal.date !== date ? `Ends next day, ${timezone}` : timezone;
 }
 
 function renderTimeline() {
@@ -839,6 +862,7 @@ function initTimelineDrag() {
   const handle = document.getElementById("timeline-handle-right");
   const startInput = document.getElementById("manual-start");
   const durationInput = document.getElementById("manual-duration");
+  const endInput = document.getElementById("manual-end");
 
   let dragMode = null;
   let dragStartX = 0;
@@ -852,12 +876,13 @@ function initTimelineDrag() {
     if (dragMode === "move") {
       const newStart = Math.max(0, Math.min(DAY_MINUTES - 1, Math.round(dragStartMinutes + deltaMin)));
       startInput.value = minutesToTimeStr(newStart);
+      syncManualTimeFields("start");
     } else if (dragMode === "resize") {
       const newDuration = Math.max(5, Math.round(dragStartDuration + deltaMin));
       durationInput.value = newDuration;
+      syncManualTimeFields("duration");
     }
     renderTimeline();
-    updateManualEndPreview();
   }
 
   function onUp() {
@@ -891,13 +916,14 @@ function initTimelineDrag() {
     const rect = track.getBoundingClientRect();
     const pct = (e.clientX - rect.left) / rect.width;
     startInput.value = minutesToTimeStr(pct * DAY_MINUTES);
+    syncManualTimeFields("start");
     renderTimeline();
-    updateManualEndPreview();
   });
 
-  startInput.addEventListener("input", () => { renderTimeline(); updateManualEndPreview(); });
-  durationInput.addEventListener("input", () => { renderTimeline(); updateManualEndPreview(); });
-  document.getElementById("manual-date").addEventListener("input", updateManualEndPreview);
+  startInput.addEventListener("input", () => { syncManualTimeFields("start"); renderTimeline(); });
+  durationInput.addEventListener("input", () => { syncManualTimeFields("duration"); renderTimeline(); });
+  endInput.addEventListener("input", () => { syncManualTimeFields("end"); renderTimeline(); });
+  document.getElementById("manual-date").addEventListener("input", () => { syncManualTimeFields("start"); renderTimeline(); });
 }
 
 function buildQualityButtons(containerId) {
@@ -921,8 +947,8 @@ function resetManualFormToDefaults() {
   document.getElementById("manual-notes").value = "";
   manualSelectedQuality = null;
   document.querySelectorAll("#manual-quality-buttons button").forEach((b) => b.classList.remove("selected"));
+  syncManualTimeFields("start");
   renderTimeline();
-  updateManualEndPreview();
 }
 
 async function handleManualSubmit(e) {

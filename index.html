@@ -106,12 +106,20 @@
               <input type="time" id="manual-start" required />
             </div>
           </div>
+          <div class="field-row two-col">
+            <div>
+              <label for="manual-duration">Duration (minutes)</label>
+              <input type="number" id="manual-duration" min="1" value="30" required />
+            </div>
+            <div>
+              <label for="manual-end">End time</label>
+              <input type="time" id="manual-end" required />
+            </div>
+          </div>
           <div class="field-row">
-            <label for="manual-duration">Duration (minutes)</label>
-            <input type="number" id="manual-duration" min="1" value="30" required />
+            <span class="hint" id="manual-end-badge"></span>
             <button type="button" id="manual-now-btn">Reset to now</button>
           </div>
-          <div class="hint" id="manual-end-preview"></div>
 
           <div class="timeline-chart">
             <div class="timeline-track" id="timeline-track">

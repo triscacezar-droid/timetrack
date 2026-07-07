@@ -153,16 +153,18 @@ timer for:
   in; the app converts to UTC automatically before storing.
 - **Activity**, **start date**, **start time** — default to *right now* in
   the chosen timezone.
-- **Duration (minutes)** — defaults to 30. Because entries are
-  start-time-plus-duration rather than start/end, logging something that
-  runs past midnight (e.g. started 11:30 PM, ran for 90 minutes) just works
-  — no need to fiddle with a second date field. The text under the duration
-  field previews the computed end time and flags "(+1 day)" when it crosses
-  midnight.
+- **Duration (minutes)** and **End time** are two views of the same thing,
+  and stay in sync automatically: change the duration and the end time
+  updates; change the end time and the duration recalculates. Duration
+  defaults to 30 minutes. Because there's no separate end-date field,
+  logging something that runs past midnight (e.g. started 11:30 PM, ran
+  90 minutes, ends 1:00 AM) just works — set an end time earlier than the
+  start time and it's assumed to be the next day. The hint line below
+  flags "(+1 day)" when that happens.
 - **Drag the bar** on the timeline chart below to set the start time (drag
   the middle) or duration (drag the right edge) visually — it stays in sync
-  with the fields above. Click anywhere on the empty track to jump the start
-  time there. The thin red line marks the current time of day.
+  with all the fields above. Click anywhere on the empty track to jump the
+  start time there. The thin red line marks the current time of day.
 - **Quality (optional)** — tap a 0–5 rating for the entry, same as the timer.
 - **Reset to now** — snaps start date/time back to the current moment and
   duration back to 30 minutes.

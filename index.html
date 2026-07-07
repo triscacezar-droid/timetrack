@@ -77,32 +77,59 @@
         </div>
 
         <div id="status-msg" class="status"></div>
+
+        <div id="quality-picker" class="quality-picker hidden">
+          <span class="hint">How did that go? (optional)</span>
+          <div class="quality-buttons" id="quality-buttons"></div>
+          <button id="quality-skip-btn">Skip</button>
+        </div>
       </section>
 
       <section class="card manual-card">
         <h2>Add entry manually</h2>
         <form id="manual-form">
           <div class="field-row">
+            <label for="manual-timezone">Timezone</label>
+            <select id="manual-timezone"></select>
+          </div>
+          <div class="field-row">
             <label for="manual-activity">Activity</label>
             <select id="manual-activity"></select>
           </div>
-          <div class="field-row">
-            <label for="manual-date">Date</label>
-            <input type="date" id="manual-date" required />
-          </div>
           <div class="field-row two-col">
+            <div>
+              <label for="manual-date">Start date</label>
+              <input type="date" id="manual-date" required />
+            </div>
             <div>
               <label for="manual-start">Start time</label>
               <input type="time" id="manual-start" required />
             </div>
-            <div>
-              <label for="manual-end">End time</label>
-              <input type="time" id="manual-end" required />
-            </div>
           </div>
+          <div class="field-row">
+            <label for="manual-duration">Duration (minutes)</label>
+            <input type="number" id="manual-duration" min="1" value="30" required />
+            <button type="button" id="manual-now-btn">Reset to now</button>
+          </div>
+          <div class="hint" id="manual-end-preview"></div>
+
+          <div class="timeline-chart">
+            <div class="timeline-track" id="timeline-track">
+              <div class="timeline-now-marker" id="timeline-now-marker"></div>
+              <div class="timeline-bar" id="timeline-bar">
+                <div class="timeline-handle" id="timeline-handle-right" title="Drag to change duration"></div>
+              </div>
+            </div>
+            <div class="timeline-hours" id="timeline-hours"></div>
+          </div>
+
           <div class="field-row">
             <label for="manual-notes">Notes (optional)</label>
             <input type="text" id="manual-notes" placeholder="What were you doing?" />
+          </div>
+          <div class="field-row">
+            <label>Quality (optional)</label>
+            <div class="quality-buttons" id="manual-quality-buttons"></div>
           </div>
           <button type="submit" class="primary">Add entry</button>
         </form>

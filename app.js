@@ -1,6 +1,102 @@
 const ACTIVITIES_KEY = "timetrack.activities";
 const DEFAULT_ACTIVITIES = ["Work", "Read", "Exercise", "Break", "Meditate"];
 
+// ---------- Timezones ----------
+
+const TIMEZONE_KEY = "timetrack.timezone";
+const FALLBACK_TIMEZONES = [
+  "UTC", "America/Los_Angeles", "America/Denver", "America/Chicago", "America/New_York",
+  "America/Anchorage", "America/Sao_Paulo", "America/Mexico_City", "America/Toronto",
+  "Europe/London", "Europe/Dublin", "Europe/Lisbon", "Europe/Madrid", "Europe/Paris",
+  "Europe/Berlin", "Europe/Rome", "Europe/Amsterdam", "Europe/Warsaw", "Europe/Athens",
+  "Europe/Bucharest", "Europe/Helsinki", "Europe/Moscow", "Europe/Istanbul",
+  "Africa/Cairo", "Africa/Johannesburg", "Africa/Lagos", "Africa/Nairobi",
+  "Asia/Jerusalem", "Asia/Dubai", "Asia/Karachi", "Asia/Kolkata", "Asia/Dhaka",
+  "Asia/Bangkok", "Asia/Jakarta", "Asia/Shanghai", "Asia/Hong_Kong", "Asia/Singapore",
+  "Asia/Tokyo", "Asia/Seoul", "Asia/Manila", "Australia/Perth", "Australia/Adelaide",
+  "Australia/Sydney", "Australia/Brisbane", "Pacific/Auckland", "Pacific/Honolulu",
+];
+
+function getTimezoneList() {
+  if (typeof Intl.supportedValuesOf === "function") {
+    try {
+      return Intl.supportedValuesOf("timeZone");
+    } catch {
+      return FALLBACK_TIMEZONES;
+    }
+  }
+  return FALLBACK_TIMEZONES;
+}
+
+function getBrowserTimezone() {
+  try {
+    return Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
+  } catch {
+    return "UTC";
+  }
+}
+
+function getTzOffsetMinutes(timeZone, utcMs) {
+  const dtf = new Intl.DateTimeFormat("en-US", {
+    timeZone,
+    hourCycle: "h23",
+    year: "numeric", month: "2-digit", day: "2-digit",
+    hour: "2-digit", minute: "2-digit", second: "2-digit",
+  });
+  const parts = dtf.formatToParts(new Date(utcMs)).reduce((acc, p) => {
+    acc[p.type] = p.value;
+    return acc;
+  }, {});
+  const asUTC = Date.UTC(+parts.year, +parts.month - 1, +parts.day, +parts.hour, +parts.minute, +parts.second);
+  return (asUTC - utcMs) / 60000;
+}
+
+// Converts a wall-clock date+time as experienced in `timeZone` into the
+// absolute UTC instant it represents (correcting once for DST edge cases).
+function zonedToUtc(dateStr, timeStr, timeZone) {
+  const naiveMs = Date.parse(`${dateStr}T${timeStr}:00Z`);
+  const offset1 = getTzOffsetMinutes(timeZone, naiveMs);
+  let utcMs = naiveMs - offset1 * 60000;
+  const offset2 = getTzOffsetMinutes(timeZone, utcMs);
+  if (offset2 !== offset1) {
+    utcMs = naiveMs - offset2 * 60000;
+  }
+  return new Date(utcMs);
+}
+
+function utcToZonedParts(date, timeZone) {
+  const dtf = new Intl.DateTimeFormat("en-US", {
+    timeZone,
+    hourCycle: "h23",
+    year: "numeric", month: "2-digit", day: "2-digit",
+    hour: "2-digit", minute: "2-digit",
+  });
+  const parts = dtf.formatToParts(date).reduce((acc, p) => {
+    acc[p.type] = p.value;
+    return acc;
+  }, {});
+  return { date: `${parts.year}-${parts.month}-${parts.day}`, time: `${parts.hour}:${parts.minute}` };
+}
+
+function initManualTimezone() {
+  const select = document.getElementById("manual-timezone");
+  const zones = getTimezoneList();
+  for (const tz of zones) {
+    const opt = document.createElement("option");
+    opt.value = tz;
+    opt.textContent = tz;
+    select.appendChild(opt);
+  }
+  const saved = localStorage.getItem(TIMEZONE_KEY);
+  const initial = saved && zones.includes(saved) ? saved : getBrowserTimezone();
+  select.value = initial;
+  select.onchange = () => {
+    localStorage.setItem(TIMEZONE_KEY, select.value);
+    updateManualEndPreview();
+    renderTimeline();
+  };
+}
+
 const THEME_KEY = "timetrack.theme";
 const THEMES = [
   { id: "dark", label: "Dark (default)" },
@@ -370,28 +466,38 @@ async function sheetsFetch(path, options = {}) {
   return res.json();
 }
 
+// Columns: Date, Activity, Start, End, Duration (min), Notes, Timezone, Quality.
+// Date/Start/End are always stored in UTC. Timezone/Quality were added after
+// Notes so pre-existing rows/headers stay valid — we only backfill the
+// missing header cells rather than reordering anything.
+const HEADER_ROW = ["Date", "Activity", "Start", "End", "Duration (min)", "Notes", "Timezone", "Quality"];
+
 async function ensureHeaderRow() {
-  const range = `${CONFIG.SHEET_NAME}!A1:F1`;
+  const range = `${CONFIG.SHEET_NAME}!A1:H1`;
   const data = await sheetsFetch(`/values/${encodeURIComponent(range)}`);
-  if (!data.values || data.values.length === 0) {
+  const row = (data.values && data.values[0]) || [];
+  if (row.length === 0) {
     await sheetsFetch(`/values/${encodeURIComponent(range)}?valueInputOption=RAW`, {
       method: "PUT",
-      body: JSON.stringify({
-        range,
-        values: [["Date", "Activity", "Start", "End", "Duration (min)", "Notes"]],
-      }),
+      body: JSON.stringify({ range, values: [HEADER_ROW] }),
+    });
+  } else if (row.length < HEADER_ROW.length) {
+    const missingRange = `${CONFIG.SHEET_NAME}!${String.fromCharCode(65 + row.length)}1:H1`;
+    await sheetsFetch(`/values/${encodeURIComponent(missingRange)}?valueInputOption=RAW`, {
+      method: "PUT",
+      body: JSON.stringify({ range: missingRange, values: [HEADER_ROW.slice(row.length)] }),
     });
   }
 }
 
-async function appendEntry({ date, activity, start, end, durationMin, notes }) {
+async function appendEntry({ date, activity, start, end, durationMin, notes, timezone, quality }) {
   await ensureHeaderRow();
-  const range = `${CONFIG.SHEET_NAME}!A:F`;
+  const range = `${CONFIG.SHEET_NAME}!A:H`;
   await sheetsFetch(`/values/${encodeURIComponent(range)}:append?valueInputOption=USER_ENTERED`, {
     method: "POST",
     body: JSON.stringify({
       range,
-      values: [[date, activity, start, end, durationMin, notes || ""]],
+      values: [[date, activity, start, end, durationMin, notes || "", timezone || "", quality ?? ""]],
     }),
   });
   setStatus(`Logged "${activity}" — ${durationMin} min.`);
@@ -399,7 +505,7 @@ async function appendEntry({ date, activity, start, end, durationMin, notes }) {
 }
 
 async function fetchRecentEntries(limit = 10) {
-  const range = `${CONFIG.SHEET_NAME}!A2:F`;
+  const range = `${CONFIG.SHEET_NAME}!A2:H`;
   const data = await sheetsFetch(`/values/${encodeURIComponent(range)}`);
   const rows = data.values || [];
   return rows.slice(-limit).reverse();
@@ -415,13 +521,26 @@ async function refreshLog() {
       listEl.innerHTML = '<div class="status">No entries yet.</div>';
       return;
     }
-    for (const [date, activity, start, end, duration, notes] of rows) {
+    for (const [date, activity, start, end, duration, notes, timezone, quality] of rows) {
+      const tz = timezone || getBrowserTimezone();
+      let displayDate = date, displayStart = start, displayEnd = end;
+      try {
+        const startUtc = new Date(`${date}T${start}:00Z`);
+        const endUtc = new Date(startUtc.getTime() + Number(duration) * 60000);
+        const localStart = utcToZonedParts(startUtc, tz);
+        const localEnd = utcToZonedParts(endUtc, tz);
+        displayDate = localStart.date;
+        displayStart = localStart.time;
+        displayEnd = localEnd.time + (localEnd.date !== localStart.date ? " (+1d)" : "");
+      } catch {
+        // fall back to raw stored values if parsing/timezone conversion fails
+      }
       const div = document.createElement("div");
       div.className = "log-entry";
       div.innerHTML = `
         <div>
-          <div class="activity">${escapeHtml(activity || "")}</div>
-          <div class="meta">${escapeHtml(date || "")} · ${escapeHtml(start || "")}–${escapeHtml(end || "")}${notes ? " · " + escapeHtml(notes) : ""}</div>
+          <div class="activity">${escapeHtml(activity || "")}${quality !== undefined && quality !== "" ? ` <span class="quality-badge">★${escapeHtml(quality)}</span>` : ""}</div>
+          <div class="meta">${escapeHtml(displayDate || "")} · ${escapeHtml(displayStart || "")}–${escapeHtml(displayEnd || "")}${tz ? " · " + escapeHtml(tz) : ""}${notes ? " · " + escapeHtml(notes) : ""}</div>
         </div>
         <div class="meta">${escapeHtml(duration || "")} min</div>
       `;
@@ -534,7 +653,7 @@ async function completeTimer() {
   setTimerButtons();
   updateTimerDisplay();
   notifyDone();
-  await logAndReset(start, end, durationMin);
+  stageTimerEntry(start, end, durationMin);
 }
 
 async function stopTimer() {
@@ -547,17 +666,29 @@ async function stopTimer() {
   timer.remainingSeconds = 0;
   setTimerButtons();
   updateTimerDisplay();
-  await logAndReset(start, end, durationMin);
+  stageTimerEntry(start, end, durationMin);
 }
 
-async function logAndReset(start, end, durationMin) {
+let pendingTimerEntry = null;
+
+function stageTimerEntry(start, end, durationMin) {
   const activity = timer.activity;
   timer.activity = null;
   timer.startedAt = null;
+  pendingTimerEntry = { start, end, durationMin, activity };
+  document.getElementById("quality-picker").classList.remove("hidden");
+}
+
+async function finalizeTimerEntry(quality) {
+  document.getElementById("quality-picker").classList.add("hidden");
+  if (!pendingTimerEntry) return;
+  const { start, end, durationMin, activity } = pendingTimerEntry;
+  pendingTimerEntry = null;
   if (!accessToken) {
     setStatus("Not signed in — entry not saved. Sign in with Google to log time.");
     return;
   }
+  const timezone = document.getElementById("manual-timezone").value || getBrowserTimezone();
   try {
     await appendEntry({
       date: formatDate(start),
@@ -566,6 +697,8 @@ async function logAndReset(start, end, durationMin) {
       end: formatTime(end),
       durationMin,
       notes: "",
+      timezone,
+      quality,
     });
   } catch (err) {
     setStatus("Failed to log entry: " + err.message);
@@ -633,34 +766,198 @@ function notifyDone() {
 
 // ---------- Manual entry ----------
 
+// Both always express the UTC instant, regardless of the browser's local timezone.
 function formatDate(d) {
   return d.toISOString().slice(0, 10);
 }
 function formatTime(d) {
-  return d.toTimeString().slice(0, 5);
+  return d.toISOString().slice(11, 16);
+}
+
+const DAY_MINUTES = 1440;
+let manualSelectedQuality = null;
+
+function minutesOfDay(timeStr) {
+  const [h, m] = (timeStr || "00:00").split(":").map(Number);
+  return h * 60 + m;
+}
+
+function minutesToTimeStr(mins) {
+  mins = ((Math.round(mins) % DAY_MINUTES) + DAY_MINUTES) % DAY_MINUTES;
+  const h = Math.floor(mins / 60);
+  const m = mins % 60;
+  return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}`;
+}
+
+function updateManualEndPreview() {
+  const timezone = document.getElementById("manual-timezone").value || getBrowserTimezone();
+  const date = document.getElementById("manual-date").value;
+  const startStr = document.getElementById("manual-start").value;
+  const durationMin = parseInt(document.getElementById("manual-duration").value) || 0;
+  const preview = document.getElementById("manual-end-preview");
+  if (!date || !startStr || !durationMin) {
+    preview.textContent = "";
+    return;
+  }
+  const startUtc = zonedToUtc(date, startStr, timezone);
+  const endUtc = new Date(startUtc.getTime() + durationMin * 60000);
+  const endLocal = utcToZonedParts(endUtc, timezone);
+  const crossesDay = endLocal.date !== date;
+  preview.textContent = `Ends ${endLocal.time}${crossesDay ? " (+1 day)" : ""} · ${timezone}`;
+}
+
+function renderTimeline() {
+  const startStr = document.getElementById("manual-start").value || "00:00";
+  const durationMin = parseInt(document.getElementById("manual-duration").value) || 0;
+  const startMin = minutesOfDay(startStr);
+
+  const bar = document.getElementById("timeline-bar");
+  const leftPct = (startMin / DAY_MINUTES) * 100;
+  const visibleDuration = Math.max(Math.min(durationMin, DAY_MINUTES - startMin), 0);
+  const widthPct = Math.max((visibleDuration / DAY_MINUTES) * 100, 0.6);
+  bar.style.left = `${leftPct}%`;
+  bar.style.width = `${widthPct}%`;
+
+  const timezone = document.getElementById("manual-timezone").value || getBrowserTimezone();
+  const nowMin = minutesOfDay(utcToZonedParts(new Date(), timezone).time);
+  document.getElementById("timeline-now-marker").style.left = `${(nowMin / DAY_MINUTES) * 100}%`;
+}
+
+function renderTimelineHours() {
+  const hoursEl = document.getElementById("timeline-hours");
+  hoursEl.innerHTML = "";
+  for (let h = 0; h <= 24; h += 3) {
+    const span = document.createElement("span");
+    span.textContent = String(h).padStart(2, "0");
+    hoursEl.appendChild(span);
+  }
+}
+
+function initTimelineDrag() {
+  const track = document.getElementById("timeline-track");
+  const bar = document.getElementById("timeline-bar");
+  const handle = document.getElementById("timeline-handle-right");
+  const startInput = document.getElementById("manual-start");
+  const durationInput = document.getElementById("manual-duration");
+
+  let dragMode = null;
+  let dragStartX = 0;
+  let dragStartMinutes = 0;
+  let dragStartDuration = 0;
+
+  function onMove(e) {
+    if (!dragMode) return;
+    const rect = track.getBoundingClientRect();
+    const deltaMin = ((e.clientX - dragStartX) / rect.width) * DAY_MINUTES;
+    if (dragMode === "move") {
+      const newStart = Math.max(0, Math.min(DAY_MINUTES - 1, Math.round(dragStartMinutes + deltaMin)));
+      startInput.value = minutesToTimeStr(newStart);
+    } else if (dragMode === "resize") {
+      const newDuration = Math.max(5, Math.round(dragStartDuration + deltaMin));
+      durationInput.value = newDuration;
+    }
+    renderTimeline();
+    updateManualEndPreview();
+  }
+
+  function onUp() {
+    dragMode = null;
+    window.removeEventListener("pointermove", onMove);
+    window.removeEventListener("pointerup", onUp);
+  }
+
+  bar.addEventListener("pointerdown", (e) => {
+    if (e.target === handle) return;
+    dragMode = "move";
+    dragStartX = e.clientX;
+    dragStartMinutes = minutesOfDay(startInput.value);
+    window.addEventListener("pointermove", onMove);
+    window.addEventListener("pointerup", onUp);
+    e.preventDefault();
+  });
+
+  handle.addEventListener("pointerdown", (e) => {
+    dragMode = "resize";
+    dragStartX = e.clientX;
+    dragStartDuration = parseInt(durationInput.value) || 30;
+    window.addEventListener("pointermove", onMove);
+    window.addEventListener("pointerup", onUp);
+    e.stopPropagation();
+    e.preventDefault();
+  });
+
+  track.addEventListener("pointerdown", (e) => {
+    if (e.target !== track) return;
+    const rect = track.getBoundingClientRect();
+    const pct = (e.clientX - rect.left) / rect.width;
+    startInput.value = minutesToTimeStr(pct * DAY_MINUTES);
+    renderTimeline();
+    updateManualEndPreview();
+  });
+
+  startInput.addEventListener("input", () => { renderTimeline(); updateManualEndPreview(); });
+  durationInput.addEventListener("input", () => { renderTimeline(); updateManualEndPreview(); });
+  document.getElementById("manual-date").addEventListener("input", updateManualEndPreview);
+}
+
+function buildQualityButtons(containerId) {
+  const container = document.getElementById(containerId);
+  container.innerHTML = "";
+  for (let i = 0; i <= 5; i++) {
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.textContent = String(i);
+    btn.dataset.value = String(i);
+    container.appendChild(btn);
+  }
+}
+
+function resetManualFormToDefaults() {
+  const timezone = document.getElementById("manual-timezone").value || getBrowserTimezone();
+  const nowParts = utcToZonedParts(new Date(), timezone);
+  document.getElementById("manual-date").value = nowParts.date;
+  document.getElementById("manual-start").value = nowParts.time;
+  document.getElementById("manual-duration").value = 30;
+  document.getElementById("manual-notes").value = "";
+  manualSelectedQuality = null;
+  document.querySelectorAll("#manual-quality-buttons button").forEach((b) => b.classList.remove("selected"));
+  renderTimeline();
+  updateManualEndPreview();
 }
 
 async function handleManualSubmit(e) {
   e.preventDefault();
   const activity = document.getElementById("manual-activity").value;
+  const timezone = document.getElementById("manual-timezone").value || getBrowserTimezone();
   const date = document.getElementById("manual-date").value;
   const startStr = document.getElementById("manual-start").value;
-  const endStr = document.getElementById("manual-end").value;
+  const durationMin = parseInt(document.getElementById("manual-duration").value) || 0;
   const notes = document.getElementById("manual-notes").value;
 
-  const start = new Date(`${date}T${startStr}:00`);
-  const end = new Date(`${date}T${endStr}:00`);
-  let durationMin = Math.round((end - start) / 60000);
-  if (durationMin < 0) durationMin += 24 * 60; // crossed midnight
-
+  if (!durationMin || durationMin <= 0) {
+    setStatus("Enter a valid duration.");
+    return;
+  }
   if (!accessToken) {
     setStatus("Sign in with Google first.");
     return;
   }
+
+  const startUtc = zonedToUtc(date, startStr, timezone);
+  const endUtc = new Date(startUtc.getTime() + durationMin * 60000);
+
   try {
-    await appendEntry({ date, activity, start: startStr, end: endStr, durationMin, notes });
-    document.getElementById("manual-form").reset();
-    document.getElementById("manual-date").value = date;
+    await appendEntry({
+      date: formatDate(startUtc),
+      activity,
+      start: formatTime(startUtc),
+      end: formatTime(endUtc),
+      durationMin,
+      notes,
+      timezone,
+      quality: manualSelectedQuality ?? "",
+    });
+    resetManualFormToDefaults();
   } catch (err) {
     setStatus("Failed to log entry: " + err.message);
   }
@@ -687,7 +984,30 @@ document.addEventListener("DOMContentLoaded", () => {
   initTheme();
   renderActivityOptions();
   renderBellPresetOptions();
-  document.getElementById("manual-date").value = formatDate(new Date());
+
+  initManualTimezone();
+  renderTimelineHours();
+  initTimelineDrag();
+  resetManualFormToDefaults();
+
+  buildQualityButtons("quality-buttons");
+  document.querySelectorAll("#quality-buttons button").forEach((btn) => {
+    btn.onclick = () => finalizeTimerEntry(btn.dataset.value);
+  });
+  document.getElementById("quality-skip-btn").onclick = () => finalizeTimerEntry("");
+
+  buildQualityButtons("manual-quality-buttons");
+  document.querySelectorAll("#manual-quality-buttons button").forEach((btn) => {
+    btn.onclick = () => {
+      manualSelectedQuality = manualSelectedQuality === btn.dataset.value ? null : btn.dataset.value;
+      document.querySelectorAll("#manual-quality-buttons button").forEach((b) =>
+        b.classList.toggle("selected", b.dataset.value === manualSelectedQuality)
+      );
+    };
+  });
+
+  document.getElementById("manual-now-btn").onclick = resetManualFormToDefaults;
+
   updateTimerDisplay();
   setTimerButtons();
 

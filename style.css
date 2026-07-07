@@ -251,7 +251,75 @@ select, input[type="number"], input[type="text"], input[type="date"], input[type
   font-size: 14px;
 }
 .log-entry .activity { font-weight: 600; }
+.quality-badge { color: var(--accent); font-weight: 500; font-size: 12px; }
 .log-entry .meta { color: var(--muted); }
+
+.timeline-chart { margin: 4px 0 14px; }
+.timeline-track {
+  position: relative;
+  height: 48px;
+  border-radius: 8px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  overflow: hidden;
+  touch-action: none;
+}
+.timeline-bar {
+  position: absolute;
+  top: 4px;
+  bottom: 4px;
+  min-width: 8px;
+  background: var(--accent);
+  border-radius: 6px;
+  cursor: grab;
+}
+.timeline-bar:active { cursor: grabbing; }
+.timeline-handle {
+  position: absolute;
+  right: 0;
+  top: 0;
+  bottom: 0;
+  width: 12px;
+  cursor: ew-resize;
+  background: rgba(255, 255, 255, 0.35);
+  border-radius: 0 6px 6px 0;
+}
+.timeline-now-marker {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 1px;
+  background: var(--danger);
+  opacity: 0.6;
+}
+.timeline-hours {
+  display: flex;
+  justify-content: space-between;
+  font-size: 10px;
+  color: var(--muted);
+  margin-top: 4px;
+}
+
+.quality-picker {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  justify-content: center;
+  margin-top: 10px;
+  flex-wrap: wrap;
+}
+.quality-buttons { display: flex; gap: 6px; }
+.quality-buttons button {
+  width: 34px;
+  height: 34px;
+  padding: 0;
+  border-radius: 50%;
+}
+.quality-buttons button.selected {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+}
 
 .modal {
   position: fixed;

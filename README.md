@@ -134,14 +134,38 @@ never touch git history, even though the repo itself is public.
    it early and log the elapsed time instead of the full duration.
 5. When the timer reaches zero, it logs the full duration automatically and
    plays a sound.
+6. Either way, you'll get a quick **quality picker** (0–5) — tap a number to
+   rate the session, or **Skip** if you don't care to.
 
 Every completed or manually-stopped run appends one row to your Google
-Sheet: date, activity, start time, end time, duration in minutes.
+Sheet: date, activity, start time, end time, duration, timezone, and quality
+— all timestamps are stored in **UTC**, so your data stays consistent no
+matter which timezone you logged it from or later view it in.
 
 ### Manual entry
 
 Use the "Add entry manually" form to log a block of time you didn't run the
-timer for — pick the activity, date, start/end time, and optional notes.
+timer for:
+
+- **Timezone** — defaults to your device's detected timezone, but you can
+  pick any other one (e.g. logging a trip retroactively in the timezone you
+  were actually in). This is what the start date/time below are interpreted
+  in; the app converts to UTC automatically before storing.
+- **Activity**, **start date**, **start time** — default to *right now* in
+  the chosen timezone.
+- **Duration (minutes)** — defaults to 30. Because entries are
+  start-time-plus-duration rather than start/end, logging something that
+  runs past midnight (e.g. started 11:30 PM, ran for 90 minutes) just works
+  — no need to fiddle with a second date field. The text under the duration
+  field previews the computed end time and flags "(+1 day)" when it crosses
+  midnight.
+- **Drag the bar** on the timeline chart below to set the start time (drag
+  the middle) or duration (drag the right edge) visually — it stays in sync
+  with the fields above. Click anywhere on the empty track to jump the start
+  time there. The thin red line marks the current time of day.
+- **Quality (optional)** — tap a 0–5 rating for the entry, same as the timer.
+- **Reset to now** — snaps start date/time back to the current moment and
+  duration back to 30 minutes.
 
 ### Managing activities
 
@@ -193,6 +217,11 @@ reload it.
 
 - All data lives in your Google Sheet — this app has no database of its own.
   Feel free to add charts/pivot tables directly in the Sheet.
+- Sheet columns: `Date, Activity, Start, End, Duration (min), Notes, Timezone,
+  Quality`. Date/Start/End are always UTC. The app auto-adds any missing
+  header cells, so if you started using an older version of this app (with
+  only `Date, Activity, Start, End, Duration (min), Notes`), the new columns
+  get appended without disturbing your existing rows.
 - Sign-in uses Google Identity Services' implicit token flow entirely in the
   browser; the access token is kept in memory only (not persisted), so
   you'll sign in again each time you reload the page.

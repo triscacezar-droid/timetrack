@@ -181,8 +181,14 @@ timer for:
 ### Managing activities
 
 Click the gear icon (⚙) next to the Activity dropdown to add or remove
-activities. This list lives in your browser's `localStorage`, separate from
-the logged data in the Sheet — so it's per-device.
+activities, and to set each one's color via the swatch next to its name —
+that color is what shows up on the calendar blocks and next to the activity
+name in Recent entries, so at a glance you can see how your week splits
+across activities. This list (names + colors) lives in your browser's
+`localStorage`, separate from the logged data in the Sheet — so it's
+per-device. Activities not in your local list (e.g. logged from another
+device, or since renamed/removed) still get a consistent color, deterministically
+derived from the name.
 
 ### Bell presets (e.g. for meditation)
 

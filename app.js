@@ -1,5 +1,12 @@
 const ACTIVITIES_KEY = "timetrack.activities";
-const DEFAULT_ACTIVITIES = ["Work", "Read", "Exercise", "Break", "Meditate"];
+const ACTIVITY_COLOR_PALETTE = [
+  "#5b8cff", "#ff6b6b", "#51cf66", "#fcc419", "#cc5de8",
+  "#22b8cf", "#ff922b", "#94d82d", "#f06595", "#845ef7",
+];
+const DEFAULT_ACTIVITIES = ["Work", "Read", "Exercise", "Break", "Meditate"].map((name, i) => ({
+  name,
+  color: ACTIVITY_COLOR_PALETTE[i % ACTIVITY_COLOR_PALETTE.length],
+}));
 
 // ---------- Timezones ----------
 
@@ -168,19 +175,43 @@ let timer = {
 
 // ---------- Activities (stored locally, purely for the dropdown UI) ----------
 
+// Older versions stored activities as a plain array of name strings;
+// migrate those in place to {name, color} objects on first load.
+function normalizeActivities(parsed) {
+  if (!Array.isArray(parsed) || parsed.length === 0) return clonePresets(DEFAULT_ACTIVITIES);
+  return parsed.map((item, i) =>
+    typeof item === "string"
+      ? { name: item, color: ACTIVITY_COLOR_PALETTE[i % ACTIVITY_COLOR_PALETTE.length] }
+      : { name: item.name, color: item.color || ACTIVITY_COLOR_PALETTE[i % ACTIVITY_COLOR_PALETTE.length] }
+  );
+}
+
 function loadActivities() {
   const raw = localStorage.getItem(ACTIVITIES_KEY);
-  if (!raw) return [...DEFAULT_ACTIVITIES];
+  if (!raw) return clonePresets(DEFAULT_ACTIVITIES);
   try {
-    const parsed = JSON.parse(raw);
-    return Array.isArray(parsed) && parsed.length ? parsed : [...DEFAULT_ACTIVITIES];
+    return normalizeActivities(JSON.parse(raw));
   } catch {
-    return [...DEFAULT_ACTIVITIES];
+    return clonePresets(DEFAULT_ACTIVITIES);
   }
 }
 
 function saveActivities(list) {
   localStorage.setItem(ACTIVITIES_KEY, JSON.stringify(list));
+}
+
+// Stable fallback color for activity names that aren't in the local list
+// (e.g. logged from another device, or since removed) — hashed so the same
+// name always gets the same color instead of falling back to plain accent.
+function hashColorForName(name) {
+  let hash = 0;
+  for (let i = 0; i < name.length; i++) hash = (hash * 31 + name.charCodeAt(i)) | 0;
+  return ACTIVITY_COLOR_PALETTE[Math.abs(hash) % ACTIVITY_COLOR_PALETTE.length];
+}
+
+function getActivityColor(name) {
+  const match = loadActivities().find((a) => a.name === name);
+  return match ? match.color : hashColorForName(name || "");
 }
 
 function renderActivityOptions() {
@@ -190,11 +221,11 @@ function renderActivityOptions() {
     select.innerHTML = "";
     for (const act of activities) {
       const opt = document.createElement("option");
-      opt.value = act;
-      opt.textContent = act;
+      opt.value = act.name;
+      opt.textContent = act.name;
       select.appendChild(opt);
     }
-    if (activities.includes(prev)) select.value = prev;
+    if (activities.some((a) => a.name === prev)) select.value = prev;
   }
 }
 
@@ -204,8 +235,21 @@ function renderManageModal() {
   list.innerHTML = "";
   activities.forEach((act, idx) => {
     const li = document.createElement("li");
+
+    const colorInput = document.createElement("input");
+    colorInput.type = "color";
+    colorInput.className = "activity-color-input";
+    colorInput.value = act.color;
+    colorInput.onchange = () => {
+      act.color = colorInput.value;
+      saveActivities(activities);
+      refreshCalendar();
+    };
+
     const span = document.createElement("span");
-    span.textContent = act;
+    span.textContent = act.name;
+    span.className = "activity-name";
+
     const btn = document.createElement("button");
     btn.textContent = "Remove";
     btn.onclick = () => {
@@ -214,8 +258,8 @@ function renderManageModal() {
       renderManageModal();
       renderActivityOptions();
     };
-    li.appendChild(span);
-    li.appendChild(btn);
+
+    li.append(colorInput, span, btn);
     list.appendChild(li);
   });
 }
@@ -597,7 +641,7 @@ async function refreshLog() {
 
       const infoDiv = document.createElement("div");
       infoDiv.innerHTML = `
-        <div class="activity">${escapeHtml(activity || "")}</div>
+        <div class="activity"><span class="activity-dot" style="background:${escapeHtml(getActivityColor(activity))}"></span>${escapeHtml(activity || "")}</div>
         <div class="meta">${escapeHtml(displayDate || "")} · ${escapeHtml(displayStart || "")}–${escapeHtml(displayEnd || "")}${tz ? " · " + escapeHtml(tz) : ""}${notes ? " · " + escapeHtml(notes) : ""}</div>
       `;
 
@@ -1117,6 +1161,7 @@ async function refreshCalendar() {
         block.className = "calendar-block";
         block.style.top = `${top}px`;
         block.style.height = `${height}px`;
+        block.style.background = getActivityColor(activity);
         block.dataset.rowNumber = String(rowNumber);
         const label = segIdx === 0 ? (activity || "") : `↳ ${activity || ""}`;
         block.innerHTML = `<div>${escapeHtml(label)}</div><div class="cb-time">${escapeHtml(localStart.time)}–${escapeHtml(localEnd.time)}</div>`;
@@ -1415,7 +1460,9 @@ document.addEventListener("DOMContentLoaded", () => {
     const name = input.value.trim();
     if (!name) return;
     const activities = loadActivities();
-    if (!activities.includes(name)) activities.push(name);
+    if (!activities.some((a) => a.name === name)) {
+      activities.push({ name, color: ACTIVITY_COLOR_PALETTE[activities.length % ACTIVITY_COLOR_PALETTE.length] });
+    }
     saveActivities(activities);
     input.value = "";
     renderManageModal();

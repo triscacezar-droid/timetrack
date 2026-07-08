@@ -467,12 +467,32 @@ select, input[type="number"], input[type="text"], input[type="date"], input[type
 #activities-list { list-style: none; padding: 0; margin: 0 0 12px; }
 #activities-list li {
   display: flex;
-  justify-content: space-between;
   align-items: center;
+  gap: 10px;
   padding: 6px 0;
   border-bottom: 1px solid var(--border);
 }
+#activities-list li .activity-name { flex: 1; }
 #activities-list li button { padding: 4px 8px; font-size: 12px; }
+.activity-color-input {
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: none;
+  cursor: pointer;
+  flex: none;
+}
+
+.activity-dot {
+  display: inline-block;
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  margin-right: 6px;
+  vertical-align: middle;
+}
 
 .modal-content.wide {
   max-width: 640px;

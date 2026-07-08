@@ -259,11 +259,10 @@ select, input[type="number"], input[type="text"], input[type="date"], input[type
 .calendar-day-headers .today { color: var(--accent); font-weight: 600; }
 
 .calendar-scroll {
-  max-height: 480px;
-  overflow-y: auto;
   border: 1px solid var(--border);
   border-radius: 8px;
   margin-top: 4px;
+  overflow-x: auto;
 }
 
 .calendar-body {

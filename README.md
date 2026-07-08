@@ -232,13 +232,16 @@ every day it actually spans, continuation segments marked with "↳", instead
 of being clipped to just its start day. Hover a block to see its activity,
 time range, notes, and quality in a tooltip.
 
-Click or drag anywhere on the empty grid to start a new entry there: a
-single click creates a 15-minute block at that time, or drag up/down to set
-the duration. Either way, the manual entry form below is pre-filled with
-that date/start time/duration and scrolled into view — just pick the
-activity (and adjust anything else) and hit **Add entry**. The calendar
-refreshes automatically whenever you log something, from either the timer
-or the manual form.
+Hovering over the grid shows a tooltip with the exact time under your
+cursor; while dragging, it shows the start time, end time, and duration
+instead, updating live. Click or drag anywhere on the empty grid to start a
+new entry there: a single click creates a 15-minute block at that time, or
+drag up/down to set the duration. Either way, the manual entry form below is
+pre-filled with that date/start time/duration (the page doesn't jump or
+scroll — a status message confirms what was set) — just pick the activity
+(and adjust anything else) and hit **Add entry**. The calendar refreshes
+automatically whenever you log something, from either the timer or the
+manual form.
 
 Click an existing block (rather than dragging) to jump to and highlight that
 entry in **Recent entries** below, for a quick way to rate or delete it. If

@@ -1179,6 +1179,18 @@ async function refreshCalendar() {
   }
 }
 
+function showCalendarTooltip(clientX, clientY, html) {
+  const tip = document.getElementById("calendar-time-tooltip");
+  tip.innerHTML = html;
+  tip.style.left = `${clientX + 14}px`;
+  tip.style.top = `${clientY + 14}px`;
+  tip.classList.remove("hidden");
+}
+
+function hideCalendarTooltip() {
+  document.getElementById("calendar-time-tooltip").classList.add("hidden");
+}
+
 function attachCalendarDragHandlers(col, dateStr) {
   const totalHeight = CALENDAR_HOUR_PX * CALENDAR_HOURS;
   let dragging = false;
@@ -1191,7 +1203,7 @@ function attachCalendarDragHandlers(col, dateStr) {
     return Math.round((pct * DAY_MINUTES) / 5) * 5;
   }
 
-  function updatePreview(clientY) {
+  function updatePreview(clientX, clientY) {
     const startMin = minutesFromClientY(startY);
     const curMin = minutesFromClientY(clientY);
     const from = Math.min(startMin, curMin);
@@ -1200,11 +1212,16 @@ function attachCalendarDragHandlers(col, dateStr) {
     previewEl.style.height = `${((to - from) / DAY_MINUTES) * totalHeight}px`;
     previewEl.dataset.from = from;
     previewEl.dataset.to = to;
+    showCalendarTooltip(
+      clientX,
+      clientY,
+      `${minutesToTimeStr(from)} – ${minutesToTimeStr(to)}<br><span class="hint">${to - from} min</span>`
+    );
   }
 
   function onMove(e) {
     if (!dragging) return;
-    updatePreview(e.clientY);
+    updatePreview(e.clientX, e.clientY);
   }
 
   function onUp() {
@@ -1212,6 +1229,7 @@ function attachCalendarDragHandlers(col, dateStr) {
     dragging = false;
     window.removeEventListener("pointermove", onMove);
     window.removeEventListener("pointerup", onUp);
+    hideCalendarTooltip();
     const from = parseInt(previewEl.dataset.from);
     const to = parseInt(previewEl.dataset.to);
     previewEl.remove();
@@ -1226,10 +1244,20 @@ function attachCalendarDragHandlers(col, dateStr) {
     previewEl = document.createElement("div");
     previewEl.className = "calendar-drag-preview";
     col.appendChild(previewEl);
-    updatePreview(e.clientY);
+    updatePreview(e.clientX, e.clientY);
     window.addEventListener("pointermove", onMove);
     window.addEventListener("pointerup", onUp);
     e.preventDefault();
+  });
+
+  col.addEventListener("pointermove", (e) => {
+    if (dragging) return; // drag already shows its own start–end–duration tooltip
+    const min = minutesFromClientY(e.clientY);
+    showCalendarTooltip(e.clientX, e.clientY, minutesToTimeStr(min));
+  });
+
+  col.addEventListener("pointerleave", () => {
+    if (!dragging) hideCalendarTooltip();
   });
 }
 
@@ -1239,8 +1267,7 @@ function applyCalendarSelection(dateStr, startMin, durationMin) {
   document.getElementById("manual-duration").value = durationMin;
   syncManualTimeFields("duration");
   renderTimeline();
-  document.querySelector(".manual-card").scrollIntoView({ behavior: "smooth", block: "start" });
-  document.getElementById("manual-activity").focus();
+  setStatus(`Manual entry set to ${minutesToTimeStr(startMin)}, ${durationMin} min — pick an activity below and hit Add entry.`);
 }
 
 function initTimelineDrag() {

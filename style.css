@@ -307,9 +307,10 @@ select, input[type="number"], input[type="text"], input[type="date"], input[type
   line-height: 1.2;
   padding: 2px 4px;
   overflow: hidden;
-  cursor: default;
+  cursor: pointer;
   opacity: 0.9;
 }
+.calendar-block:hover { opacity: 1; outline: 2px solid #fff; }
 .calendar-block .cb-time { opacity: 0.8; }
 
 .calendar-drag-preview {
@@ -341,6 +342,11 @@ select, input[type="number"], input[type="text"], input[type="date"], input[type
   border: 1px solid var(--border);
   border-radius: 8px;
   font-size: 14px;
+  transition: background-color 0.3s, border-color 0.3s;
+}
+.log-entry.highlighted {
+  border-color: var(--accent);
+  background-color: color-mix(in srgb, var(--accent) 15%, transparent);
 }
 .log-entry .activity { font-weight: 600; }
 .log-entry .meta { color: var(--muted); }
@@ -350,6 +356,22 @@ select, input[type="number"], input[type="text"], input[type="date"], input[type
   align-items: flex-end;
   gap: 4px;
   flex: none;
+}
+.log-entry-top-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.delete-entry-btn {
+  padding: 2px 6px;
+  font-size: 12px;
+  line-height: 1;
+  border-color: transparent;
+  background: transparent;
+}
+.delete-entry-btn:hover {
+  border-color: var(--danger);
+  background: transparent;
 }
 
 .timeline-chart { margin: 4px 0 14px; }

@@ -234,6 +234,12 @@ activity (and adjust anything else) and hit **Add entry**. The calendar
 refreshes automatically whenever you log something, from either the timer
 or the manual form.
 
+Click an existing block (rather than dragging) to jump to and highlight that
+entry in **Recent entries** below, for a quick way to rate or delete it. If
+the entry is older than the last 10 shown there, you'll get a message
+instead of a highlight — hit **Refresh** on Recent entries and it'll likely
+be there.
+
 ### Recent entries
 
 The "Recent entries" section shows the last 10 rows from your Sheet, so you
@@ -242,6 +248,11 @@ reload it. Each entry has its own 0–5 quality buttons — tap one to set or
 change the rating on that entry (tap the currently-selected number again to
 clear it); it updates the Quality cell for that row directly, no need to go
 back and re-log anything.
+
+Each entry also has a 🗑 delete button — it asks for confirmation, then
+removes that row from the Sheet entirely (via a Sheets API `deleteDimension`
+request, so rows below it shift up correctly) and refreshes both the list
+and the calendar.
 
 ---
 

@@ -530,6 +530,33 @@ async function updateEntryQuality(rowNumber, quality) {
   });
 }
 
+let cachedSheetId = null;
+
+async function getSheetId() {
+  if (cachedSheetId !== null) return cachedSheetId;
+  const data = await sheetsFetch(`?fields=${encodeURIComponent("sheets.properties")}`);
+  const sheet = (data.sheets || []).find((s) => s.properties.title === CONFIG.SHEET_NAME);
+  if (!sheet) throw new Error(`Sheet tab "${CONFIG.SHEET_NAME}" not found`);
+  cachedSheetId = sheet.properties.sheetId;
+  return cachedSheetId;
+}
+
+async function deleteEntryRow(rowNumber) {
+  const sheetId = await getSheetId();
+  await sheetsFetch(`:batchUpdate`, {
+    method: "POST",
+    body: JSON.stringify({
+      requests: [
+        {
+          deleteDimension: {
+            range: { sheetId, dimension: "ROWS", startIndex: rowNumber - 1, endIndex: rowNumber },
+          },
+        },
+      ],
+    }),
+  });
+}
+
 async function fetchRecentEntries(limit = 10) {
   const range = `${CONFIG.SHEET_NAME}!A2:H`;
   const data = await sheetsFetch(`/values/${encodeURIComponent(range)}`);
@@ -566,6 +593,7 @@ async function refreshLog() {
       }
       const div = document.createElement("div");
       div.className = "log-entry";
+      div.dataset.rowNumber = String(rowNumber);
 
       const infoDiv = document.createElement("div");
       infoDiv.innerHTML = `
@@ -575,11 +603,20 @@ async function refreshLog() {
 
       const rightDiv = document.createElement("div");
       rightDiv.className = "log-entry-right";
+      const topRow = document.createElement("div");
+      topRow.className = "log-entry-top-row";
       const durationSpan = document.createElement("div");
       durationSpan.className = "meta";
       durationSpan.textContent = `${duration || ""} min`;
+      const deleteBtn = document.createElement("button");
+      deleteBtn.type = "button";
+      deleteBtn.className = "delete-entry-btn";
+      deleteBtn.title = "Delete entry";
+      deleteBtn.textContent = "🗑";
+      deleteBtn.onclick = () => confirmDeleteEntry(rowNumber, activity);
+      topRow.append(durationSpan, deleteBtn);
       const qualityRow = renderQualityMiniButtons(rowNumber, quality);
-      rightDiv.append(durationSpan, qualityRow);
+      rightDiv.append(topRow, qualityRow);
 
       div.append(infoDiv, rightDiv);
       listEl.appendChild(div);
@@ -587,6 +624,30 @@ async function refreshLog() {
   } catch (err) {
     setStatus("Could not load log: " + err.message);
   }
+}
+
+async function confirmDeleteEntry(rowNumber, activity) {
+  const ok = window.confirm(`Delete this "${activity || "entry"}" log? This can't be undone.`);
+  if (!ok) return;
+  try {
+    await deleteEntryRow(rowNumber);
+    setStatus("Entry deleted.");
+    refreshLog();
+    refreshCalendar();
+  } catch (err) {
+    setStatus("Failed to delete entry: " + err.message);
+  }
+}
+
+function highlightLogEntry(rowNumber) {
+  const el = document.querySelector(`.log-entry[data-row-number="${rowNumber}"]`);
+  if (!el) {
+    setStatus("That entry isn't in the Recent entries list (hit Refresh, or it's older than the last 10).");
+    return;
+  }
+  el.scrollIntoView({ behavior: "smooth", block: "center" });
+  el.classList.add("highlighted");
+  setTimeout(() => el.classList.remove("highlighted"), 2000);
 }
 
 function renderQualityMiniButtons(rowNumber, currentQuality) {
@@ -1027,11 +1088,12 @@ async function refreshCalendar() {
     const range = `${CONFIG.SHEET_NAME}!A2:H`;
     const data = await sheetsFetch(`/values/${encodeURIComponent(range)}`);
     const rows = data.values || [];
-    for (const row of rows) {
+    rows.forEach((row, i) => {
+      const rowNumber = i + 2;
       const [date, activity, start, , duration, notes, , quality] = row;
-      if (!date || !start) continue;
+      if (!date || !start) return;
       const startUtc = new Date(`${date}T${start}:00Z`);
-      if (Number.isNaN(startUtc.getTime())) continue;
+      if (Number.isNaN(startUtc.getTime())) return;
 
       const durationMin = Number(duration) || 0;
       const endUtc = new Date(startUtc.getTime() + durationMin * 60000);
@@ -1055,12 +1117,18 @@ async function refreshCalendar() {
         block.className = "calendar-block";
         block.style.top = `${top}px`;
         block.style.height = `${height}px`;
+        block.dataset.rowNumber = String(rowNumber);
         const label = segIdx === 0 ? (activity || "") : `↳ ${activity || ""}`;
         block.innerHTML = `<div>${escapeHtml(label)}</div><div class="cb-time">${escapeHtml(localStart.time)}–${escapeHtml(localEnd.time)}</div>`;
         block.title = tooltip;
+        block.addEventListener("pointerdown", (e) => e.stopPropagation());
+        block.addEventListener("click", (e) => {
+          e.stopPropagation();
+          highlightLogEntry(rowNumber);
+        });
         dayCols[idx].appendChild(block);
       });
-    }
+    });
   } catch (err) {
     setStatus("Could not load calendar: " + err.message);
   }

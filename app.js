@@ -557,7 +557,7 @@ async function deleteEntryRow(rowNumber) {
   });
 }
 
-async function fetchRecentEntries(limit = 10) {
+async function fetchRecentEntries(limit = 50) {
   const range = `${CONFIG.SHEET_NAME}!A2:H`;
   const data = await sheetsFetch(`/values/${encodeURIComponent(range)}`);
   const rows = data.values || [];

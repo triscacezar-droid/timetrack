@@ -236,13 +236,13 @@ or the manual form.
 
 Click an existing block (rather than dragging) to jump to and highlight that
 entry in **Recent entries** below, for a quick way to rate or delete it. If
-the entry is older than the last 10 shown there, you'll get a message
+the entry is older than the last 50 shown there, you'll get a message
 instead of a highlight — hit **Refresh** on Recent entries and it'll likely
 be there.
 
 ### Recent entries
 
-The "Recent entries" section shows the last 10 rows from your Sheet, so you
+The "Recent entries" section shows the last 50 rows from your Sheet, so you
 can sanity-check what got logged without leaving the app. Hit **Refresh** to
 reload it. Each entry has its own 0–5 quality buttons — tap one to set or
 change the rating on that entry (tap the currently-selected number again to

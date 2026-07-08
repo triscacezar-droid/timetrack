@@ -220,9 +220,11 @@ Screen**.
 
 "This week" shows the past 7 days as a Google-Calendar-style grid (days
 across the top, hours down the side, in your selected timezone), with each
-logged entry drawn as a block positioned by its start time and duration.
-Hover a block to see its activity, time range, notes, and quality in a
-tooltip.
+logged entry drawn as a block positioned by its start time and duration. An
+entry that crosses midnight (e.g. sleep) is split and drawn as a block on
+every day it actually spans, continuation segments marked with "↳", instead
+of being clipped to just its start day. Hover a block to see its activity,
+time range, notes, and quality in a tooltip.
 
 Click or drag anywhere on the empty grid to start a new entry there: a
 single click creates a 15-minute block at that time, or drag up/down to set

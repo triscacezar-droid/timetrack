@@ -992,6 +992,30 @@ function renderCalendarSkeleton() {
   return { days, dayCols };
 }
 
+// Splits a [startUtc, endUtc) interval into one segment per local calendar
+// day it touches, each with the minute-of-day range for that day — so an
+// overnight entry gets drawn as a block on each day it actually crosses,
+// instead of being clipped to just its start day.
+function splitIntoDaySegments(startUtc, endUtc, tz) {
+  const segments = [];
+  let cursor = startUtc;
+  let guard = 0;
+  while (cursor < endUtc && guard < 30) {
+    guard++;
+    const localCursor = utcToZonedParts(cursor, tz);
+    const dayStartUtc = zonedToUtc(localCursor.date, "00:00", tz);
+    const nextDayStartUtc = zonedToUtc(addDaysToDateStr(localCursor.date, 1), "00:00", tz);
+    const segmentEndUtc = endUtc < nextDayStartUtc ? endUtc : nextDayStartUtc;
+    segments.push({
+      dateStr: localCursor.date,
+      startMin: Math.round((cursor - dayStartUtc) / 60000),
+      endMin: Math.round((segmentEndUtc - dayStartUtc) / 60000),
+    });
+    cursor = segmentEndUtc;
+  }
+  return segments;
+}
+
 async function refreshCalendar() {
   if (!accessToken) return;
   const tz = getCalendarDisplayTimezone();
@@ -1008,29 +1032,34 @@ async function refreshCalendar() {
       if (!date || !start) continue;
       const startUtc = new Date(`${date}T${start}:00Z`);
       if (Number.isNaN(startUtc.getTime())) continue;
-      const localStart = utcToZonedParts(startUtc, tz);
-      const idx = dayIndex[localStart.date];
-      if (idx === undefined) continue;
 
       const durationMin = Number(duration) || 0;
-      const startMin = minutesOfDay(localStart.time);
-      const visibleDuration = Math.max(Math.min(durationMin, DAY_MINUTES - startMin), 1);
-      const top = (startMin / DAY_MINUTES) * totalHeight;
-      const height = Math.max((visibleDuration / DAY_MINUTES) * totalHeight, 14);
-      const endLocal = utcToZonedParts(new Date(startUtc.getTime() + durationMin * 60000), tz);
-
-      const block = document.createElement("div");
-      block.className = "calendar-block";
-      block.style.top = `${top}px`;
-      block.style.height = `${height}px`;
-      block.innerHTML = `<div>${escapeHtml(activity || "")}</div><div class="cb-time">${escapeHtml(localStart.time)}–${escapeHtml(endLocal.time)}</div>`;
-      block.title = [
+      const endUtc = new Date(startUtc.getTime() + durationMin * 60000);
+      const localStart = utcToZonedParts(startUtc, tz);
+      const localEnd = utcToZonedParts(endUtc, tz);
+      const tooltip = [
         activity,
-        `${localStart.time}–${endLocal.time}`,
+        `${localStart.time}–${localEnd.time}`,
         notes || "",
         quality !== undefined && quality !== "" ? `Quality: ${quality}` : "",
       ].filter(Boolean).join("\n");
-      dayCols[idx].appendChild(block);
+
+      const segments = splitIntoDaySegments(startUtc, endUtc, tz);
+      segments.forEach((seg, segIdx) => {
+        const idx = dayIndex[seg.dateStr];
+        if (idx === undefined) return;
+        const top = (seg.startMin / DAY_MINUTES) * totalHeight;
+        const height = Math.max(((seg.endMin - seg.startMin) / DAY_MINUTES) * totalHeight, 14);
+
+        const block = document.createElement("div");
+        block.className = "calendar-block";
+        block.style.top = `${top}px`;
+        block.style.height = `${height}px`;
+        const label = segIdx === 0 ? (activity || "") : `↳ ${activity || ""}`;
+        block.innerHTML = `<div>${escapeHtml(label)}</div><div class="cb-time">${escapeHtml(localStart.time)}–${escapeHtml(localEnd.time)}</div>`;
+        block.title = tooltip;
+        dayCols[idx].appendChild(block);
+      });
     }
   } catch (err) {
     setStatus("Could not load calendar: " + err.message);

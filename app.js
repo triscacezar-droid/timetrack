@@ -94,6 +94,7 @@ function initManualTimezone() {
     localStorage.setItem(TIMEZONE_KEY, select.value);
     syncManualTimeFields("start");
     renderTimeline();
+    refreshCalendar();
   };
 }
 
@@ -434,11 +435,18 @@ function initGoogleAuth() {
   });
 }
 
+function setSignedInUI(isSignedIn) {
+  document.getElementById("app-main").classList.toggle("hidden", !isSignedIn);
+  document.getElementById("signin-gate").classList.toggle("hidden", isSignedIn);
+  document.getElementById("signin-btn").classList.toggle("hidden", isSignedIn);
+  document.getElementById("signed-in").classList.toggle("hidden", !isSignedIn);
+}
+
 function onSignedIn() {
-  document.getElementById("signin-btn").classList.add("hidden");
-  document.getElementById("signed-in").classList.remove("hidden");
+  setSignedInUI(true);
   document.getElementById("user-email").textContent = "Connected";
   refreshLog();
+  refreshCalendar();
 }
 
 function signOut() {
@@ -446,8 +454,7 @@ function signOut() {
     google.accounts.oauth2.revoke(accessToken, () => {});
   }
   accessToken = null;
-  document.getElementById("signin-btn").classList.remove("hidden");
-  document.getElementById("signed-in").classList.add("hidden");
+  setSignedInUI(false);
 }
 
 // ---------- Sheets API ----------
@@ -751,6 +758,7 @@ async function stageTimerEntry(start, end, durationMin) {
     });
     pendingQualityRow = rowNumber;
     document.getElementById("quality-picker").classList.remove("hidden");
+    refreshCalendar();
   } catch (err) {
     setStatus("Failed to log entry: " + err.message);
   }
@@ -916,6 +924,183 @@ function renderTimelineHours() {
   }
 }
 
+// ---------- Calendar (past 7 days) ----------
+
+const CALENDAR_HOURS = 24;
+const CALENDAR_HOUR_PX = 32;
+
+function addDaysToDateStr(dateStr, delta) {
+  const d = new Date(`${dateStr}T00:00:00Z`);
+  d.setUTCDate(d.getUTCDate() + delta);
+  return d.toISOString().slice(0, 10);
+}
+
+function getCalendarDisplayTimezone() {
+  return document.getElementById("manual-timezone").value || getBrowserTimezone();
+}
+
+function renderCalendarSkeleton() {
+  const tz = getCalendarDisplayTimezone();
+  const todayStr = utcToZonedParts(new Date(), tz).date;
+  const days = [];
+  for (let i = 6; i >= 0; i--) days.push(addDaysToDateStr(todayStr, -i));
+
+  const headersEl = document.getElementById("calendar-day-headers");
+  headersEl.innerHTML = "";
+  headersEl.appendChild(document.createElement("div"));
+  for (const dateStr of days) {
+    const cell = document.createElement("div");
+    const dObj = new Date(`${dateStr}T00:00:00Z`);
+    cell.textContent = dObj.toLocaleDateString(undefined, { weekday: "short", day: "numeric", timeZone: "UTC" });
+    if (dateStr === todayStr) cell.classList.add("today");
+    headersEl.appendChild(cell);
+  }
+
+  const body = document.getElementById("calendar-body");
+  body.innerHTML = "";
+  body.style.gridTemplateRows = `repeat(${CALENDAR_HOURS}, ${CALENDAR_HOUR_PX}px)`;
+
+  for (let h = 0; h < CALENDAR_HOURS; h++) {
+    const label = document.createElement("div");
+    label.className = "calendar-hour-label";
+    label.style.gridRow = String(h + 1);
+    label.style.gridColumn = "1";
+    label.textContent = `${String(h).padStart(2, "0")}:00`;
+    body.appendChild(label);
+  }
+
+  const dayCols = days.map((dateStr, idx) => {
+    const col = document.createElement("div");
+    col.className = "calendar-day-col";
+    col.dataset.date = dateStr;
+    col.style.gridRow = `1 / ${CALENDAR_HOURS + 1}`;
+    col.style.gridColumn = String(idx + 2);
+    body.appendChild(col);
+    attachCalendarDragHandlers(col, dateStr);
+    return col;
+  });
+
+  const todayIdx = days.indexOf(todayStr);
+  if (todayIdx !== -1) {
+    const nowMin = minutesOfDay(utcToZonedParts(new Date(), tz).time);
+    const line = document.createElement("div");
+    line.className = "calendar-now-line";
+    line.style.top = `${(nowMin / DAY_MINUTES) * CALENDAR_HOUR_PX * CALENDAR_HOURS}px`;
+    dayCols[todayIdx].appendChild(line);
+  }
+
+  return { days, dayCols };
+}
+
+async function refreshCalendar() {
+  if (!accessToken) return;
+  const tz = getCalendarDisplayTimezone();
+  const { days, dayCols } = renderCalendarSkeleton();
+  const dayIndex = Object.fromEntries(days.map((d, i) => [d, i]));
+  const totalHeight = CALENDAR_HOUR_PX * CALENDAR_HOURS;
+
+  try {
+    const range = `${CONFIG.SHEET_NAME}!A2:H`;
+    const data = await sheetsFetch(`/values/${encodeURIComponent(range)}`);
+    const rows = data.values || [];
+    for (const row of rows) {
+      const [date, activity, start, , duration, notes, , quality] = row;
+      if (!date || !start) continue;
+      const startUtc = new Date(`${date}T${start}:00Z`);
+      if (Number.isNaN(startUtc.getTime())) continue;
+      const localStart = utcToZonedParts(startUtc, tz);
+      const idx = dayIndex[localStart.date];
+      if (idx === undefined) continue;
+
+      const durationMin = Number(duration) || 0;
+      const startMin = minutesOfDay(localStart.time);
+      const visibleDuration = Math.max(Math.min(durationMin, DAY_MINUTES - startMin), 1);
+      const top = (startMin / DAY_MINUTES) * totalHeight;
+      const height = Math.max((visibleDuration / DAY_MINUTES) * totalHeight, 14);
+      const endLocal = utcToZonedParts(new Date(startUtc.getTime() + durationMin * 60000), tz);
+
+      const block = document.createElement("div");
+      block.className = "calendar-block";
+      block.style.top = `${top}px`;
+      block.style.height = `${height}px`;
+      block.innerHTML = `<div>${escapeHtml(activity || "")}</div><div class="cb-time">${escapeHtml(localStart.time)}–${escapeHtml(endLocal.time)}</div>`;
+      block.title = [
+        activity,
+        `${localStart.time}–${endLocal.time}`,
+        notes || "",
+        quality !== undefined && quality !== "" ? `Quality: ${quality}` : "",
+      ].filter(Boolean).join("\n");
+      dayCols[idx].appendChild(block);
+    }
+  } catch (err) {
+    setStatus("Could not load calendar: " + err.message);
+  }
+}
+
+function attachCalendarDragHandlers(col, dateStr) {
+  const totalHeight = CALENDAR_HOUR_PX * CALENDAR_HOURS;
+  let dragging = false;
+  let startY = 0;
+  let previewEl = null;
+
+  function minutesFromClientY(clientY) {
+    const rect = col.getBoundingClientRect();
+    const pct = Math.min(Math.max((clientY - rect.top) / rect.height, 0), 1);
+    return Math.round((pct * DAY_MINUTES) / 5) * 5;
+  }
+
+  function updatePreview(clientY) {
+    const startMin = minutesFromClientY(startY);
+    const curMin = minutesFromClientY(clientY);
+    const from = Math.min(startMin, curMin);
+    const to = Math.max(startMin, curMin, from + 15);
+    previewEl.style.top = `${(from / DAY_MINUTES) * totalHeight}px`;
+    previewEl.style.height = `${((to - from) / DAY_MINUTES) * totalHeight}px`;
+    previewEl.dataset.from = from;
+    previewEl.dataset.to = to;
+  }
+
+  function onMove(e) {
+    if (!dragging) return;
+    updatePreview(e.clientY);
+  }
+
+  function onUp() {
+    if (!dragging) return;
+    dragging = false;
+    window.removeEventListener("pointermove", onMove);
+    window.removeEventListener("pointerup", onUp);
+    const from = parseInt(previewEl.dataset.from);
+    const to = parseInt(previewEl.dataset.to);
+    previewEl.remove();
+    previewEl = null;
+    applyCalendarSelection(dateStr, from, Math.max(to - from, 15));
+  }
+
+  col.addEventListener("pointerdown", (e) => {
+    if (e.target !== col) return; // don't start a new drag on top of an existing block
+    dragging = true;
+    startY = e.clientY;
+    previewEl = document.createElement("div");
+    previewEl.className = "calendar-drag-preview";
+    col.appendChild(previewEl);
+    updatePreview(e.clientY);
+    window.addEventListener("pointermove", onMove);
+    window.addEventListener("pointerup", onUp);
+    e.preventDefault();
+  });
+}
+
+function applyCalendarSelection(dateStr, startMin, durationMin) {
+  document.getElementById("manual-date").value = dateStr;
+  document.getElementById("manual-start").value = minutesToTimeStr(startMin);
+  document.getElementById("manual-duration").value = durationMin;
+  syncManualTimeFields("duration");
+  renderTimeline();
+  document.querySelector(".manual-card").scrollIntoView({ behavior: "smooth", block: "start" });
+  document.getElementById("manual-activity").focus();
+}
+
 function initTimelineDrag() {
   const track = document.getElementById("timeline-track");
   const bar = document.getElementById("timeline-bar");
@@ -1044,6 +1229,7 @@ async function handleManualSubmit(e) {
       quality: manualSelectedQuality ?? "",
     });
     resetManualFormToDefaults();
+    refreshCalendar();
   } catch (err) {
     setStatus("Failed to log entry: " + err.message);
   }
@@ -1061,6 +1247,7 @@ function checkConfig() {
     CONFIG.SPREADSHEET_ID && !CONFIG.SPREADSHEET_ID.startsWith("YOUR_");
   document.getElementById("setup-banner").classList.toggle("hidden", configured);
   document.getElementById("signin-btn").disabled = !configured;
+  document.getElementById("signin-gate-btn").disabled = !configured;
   return configured;
 }
 
@@ -1097,11 +1284,15 @@ document.addEventListener("DOMContentLoaded", () => {
   updateTimerDisplay();
   setTimerButtons();
 
+  setSignedInUI(false);
   const configured = checkConfig();
   if (configured) initGoogleAuth();
 
-  document.getElementById("signin-btn").onclick = () => tokenClient && tokenClient.requestAccessToken();
+  const requestSignIn = () => tokenClient && tokenClient.requestAccessToken();
+  document.getElementById("signin-btn").onclick = requestSignIn;
+  document.getElementById("signin-gate-btn").onclick = requestSignIn;
   document.getElementById("signout-btn").onclick = signOut;
+  document.getElementById("calendar-refresh-btn").onclick = refreshCalendar;
 
   document.getElementById("start-btn").onclick = startTimer;
   document.getElementById("pause-btn").onclick = pauseTimer;

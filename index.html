@@ -29,7 +29,12 @@
       and Spreadsheet ID. See <code>README.md</code> for step-by-step instructions.
     </div>
 
-    <main>
+    <div id="signin-gate" class="signin-gate hidden">
+      <p>Sign in with Google to start tracking time — your data lives in a Google Sheet you own.</p>
+      <button id="signin-gate-btn" class="primary">Sign in with Google</button>
+    </div>
+
+    <main id="app-main" class="hidden">
       <section class="card timer-card">
         <div class="timer-display" id="timer-display">00:00:00</div>
 
@@ -141,6 +146,18 @@
           </div>
           <button type="submit" class="primary">Add entry</button>
         </form>
+      </section>
+
+      <section class="card calendar-card">
+        <div class="log-header">
+          <h2>This week</h2>
+          <button id="calendar-refresh-btn">Refresh</button>
+        </div>
+        <div class="hint">Click or drag on the grid to start a new entry there.</div>
+        <div class="calendar-day-headers" id="calendar-day-headers"></div>
+        <div class="calendar-scroll">
+          <div class="calendar-body" id="calendar-body"></div>
+        </div>
       </section>
 
       <section class="card log-card">

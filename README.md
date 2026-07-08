@@ -123,6 +123,13 @@ never touch git history, even though the repo itself is public.
 
 ## How to use it
 
+### Signing in
+
+The whole app is gated behind Google sign-in — until you sign in, you'll
+only see a "Sign in with Google" button and nothing else (no timer, no
+calendar, no logged data), since none of it means anything without a Sheet
+to read from and write to.
+
 ### Countdown timer
 
 1. Pick an **Activity** from the dropdown (or add your own — see below).
@@ -208,6 +215,22 @@ The app has a web app manifest and service worker, so on Android you can use
 Chrome's menu → **Add to Home screen** (or the automatic install banner) to
 get it as a standalone app icon. On iOS, use Safari's Share → **Add to Home
 Screen**.
+
+### Weekly calendar
+
+"This week" shows the past 7 days as a Google-Calendar-style grid (days
+across the top, hours down the side, in your selected timezone), with each
+logged entry drawn as a block positioned by its start time and duration.
+Hover a block to see its activity, time range, notes, and quality in a
+tooltip.
+
+Click or drag anywhere on the empty grid to start a new entry there: a
+single click creates a 15-minute block at that time, or drag up/down to set
+the duration. Either way, the manual entry form below is pre-filled with
+that date/start time/duration and scrolled into view — just pick the
+activity (and adjust anything else) and hit **Add entry**. The calendar
+refreshes automatically whenever you log something, from either the timer
+or the manual form.
 
 ### Recent entries
 

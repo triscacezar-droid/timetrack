@@ -130,6 +130,20 @@ only see a "Sign in with Google" button and nothing else (no timer, no
 calendar, no logged data), since none of it means anything without a Sheet
 to read from and write to.
 
+### Today
+
+A running total of everything logged **today** (in your selected
+timezone), broken out per activity as a bar with its color and total
+time — updates as you log things, including live while the countdown timer
+is running.
+
+Entries logged under an activity named exactly **"Sleep"** (case-insensitive)
+are excluded from these totals, since a night's sleep usually spans two
+calendar days and would otherwise show up as a confusing partial chunk on
+"today." Instead, the hint line below shows **"Last sleep"** — the most
+recent Sleep-activity entry by actual start time, with its date, time range,
+and duration, regardless of which day it falls on.
+
 ### Countdown timer
 
 1. Pick an **Activity** from the dropdown (or add your own — see below).

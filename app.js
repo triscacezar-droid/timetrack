@@ -102,6 +102,7 @@ function initManualTimezone() {
     syncManualTimeFields("start");
     renderTimeline();
     refreshCalendar();
+    refreshToday();
   };
 }
 
@@ -246,6 +247,7 @@ function renderManageModal() {
       act.color = colorInput.value;
       saveActivities(activities);
       refreshCalendar();
+      refreshToday();
     };
 
     const span = document.createElement("span");
@@ -493,6 +495,7 @@ function onSignedIn() {
   document.getElementById("user-email").textContent = "Connected";
   refreshLog();
   refreshCalendar();
+  refreshToday();
 }
 
 function signOut() {
@@ -680,6 +683,7 @@ async function confirmDeleteEntry(rowNumber, activity) {
     setStatus("Entry deleted.");
     refreshLog();
     refreshCalendar();
+    refreshToday();
   } catch (err) {
     setStatus("Failed to delete entry: " + err.message);
   }
@@ -846,6 +850,7 @@ async function beginLiveEntry() {
     });
     timer.liveRowNumber = rowNumber;
     refreshCalendar();
+    refreshToday();
   } catch (err) {
     setStatus("Failed to start live log: " + err.message);
   }
@@ -861,6 +866,7 @@ async function updateLiveEntryProgress(elapsedMin) {
       body: JSON.stringify({ range, values: [[formatTime(end), elapsedMin]] }),
     });
     refreshCalendar();
+    refreshToday();
   } catch {
     // transient failure (e.g. a momentarily expired token) — next minute's
     // update, or the final one on Stop/completion, will just try again.
@@ -949,6 +955,7 @@ async function finalizeLiveEntry(end, durationMin) {
     setStatus(`Logged "${activity}" — ${durationMin} min.`);
     refreshLog();
     refreshCalendar();
+    refreshToday();
     pendingQualityRow = rowNumber;
     document.getElementById("quality-picker").classList.remove("hidden");
   } catch (err) {
@@ -1206,6 +1213,96 @@ function splitIntoDaySegments(startUtc, endUtc, tz) {
     cursor = segmentEndUtc;
   }
   return segments;
+}
+
+// ---------- Today summary ----------
+
+function formatMinutesShort(min) {
+  const h = Math.floor(min / 60);
+  const m = Math.round(min % 60);
+  if (h && m) return `${h}h ${m}m`;
+  if (h) return `${h}h`;
+  return `${m}m`;
+}
+
+function isSleepActivity(name) {
+  return (name || "").trim().toLowerCase() === "sleep";
+}
+
+async function refreshToday() {
+  if (!accessToken) return;
+  const tz = getCalendarDisplayTimezone();
+  const todayStr = utcToZonedParts(new Date(), tz).date;
+
+  try {
+    const range = `${CONFIG.SHEET_NAME}!A2:H`;
+    const data = await sheetsFetch(`/values/${encodeURIComponent(range)}`);
+    const rows = data.values || [];
+
+    const totals = {}; // activity name -> minutes logged today
+    let lastSleep = null; // most recent sleep entry, any date
+
+    for (const row of rows) {
+      const [date, activity, start, , duration] = row;
+      if (!date || !start) continue;
+      const startUtc = new Date(`${date}T${start}:00Z`);
+      if (Number.isNaN(startUtc.getTime())) continue;
+      const durationMin = Number(duration) || 0;
+
+      if (isSleepActivity(activity)) {
+        if (!lastSleep || startUtc > lastSleep.startUtc) {
+          lastSleep = { startUtc, durationMin };
+        }
+        continue; // sleep is never counted in today's activity totals
+      }
+
+      const localStart = utcToZonedParts(startUtc, tz);
+      if (localStart.date === todayStr) {
+        const key = activity || "(no activity)";
+        totals[key] = (totals[key] || 0) + durationMin;
+      }
+    }
+
+    renderTodaySummary(totals, lastSleep, tz);
+  } catch (err) {
+    setStatus("Could not load today's summary: " + err.message);
+  }
+}
+
+function renderTodaySummary(totals, lastSleep, tz) {
+  const container = document.getElementById("today-summary");
+  container.innerHTML = "";
+  const entries = Object.entries(totals).sort((a, b) => b[1] - a[1]);
+
+  if (entries.length === 0) {
+    const empty = document.createElement("div");
+    empty.className = "status";
+    empty.textContent = "Nothing logged yet today.";
+    container.appendChild(empty);
+  } else {
+    const maxMinutes = Math.max(...entries.map(([, m]) => m));
+    for (const [name, minutes] of entries) {
+      const color = getActivityColor(name);
+      const pct = maxMinutes ? Math.round((minutes / maxMinutes) * 100) : 0;
+      const row = document.createElement("div");
+      row.className = "today-row";
+      row.innerHTML = `
+        <div class="today-row-label"><span class="activity-dot" style="background:${escapeHtml(color)}"></span>${escapeHtml(name)}</div>
+        <div class="today-row-bar-wrap"><div class="today-row-bar" style="width:${pct}%;background:${escapeHtml(color)}"></div></div>
+        <div class="today-row-value">${formatMinutesShort(minutes)}</div>
+      `;
+      container.appendChild(row);
+    }
+  }
+
+  const sleepEl = document.getElementById("today-last-sleep");
+  if (lastSleep) {
+    const localStart = utcToZonedParts(lastSleep.startUtc, tz);
+    const localEnd = utcToZonedParts(new Date(lastSleep.startUtc.getTime() + lastSleep.durationMin * 60000), tz);
+    sleepEl.textContent = `Last sleep: ${formatMinutesShort(lastSleep.durationMin)} (${localStart.date} ${localStart.time}–${localEnd.time})`;
+  } else {
+    sleepEl.textContent = 'Last sleep: no entries logged with an activity named "Sleep" yet.';
+  }
 }
 
 async function refreshCalendar() {
@@ -1486,6 +1583,7 @@ async function handleManualSubmit(e) {
     });
     resetManualFormToDefaults();
     refreshCalendar();
+    refreshToday();
   } catch (err) {
     setStatus("Failed to log entry: " + err.message);
   }
@@ -1549,6 +1647,7 @@ document.addEventListener("DOMContentLoaded", () => {
   document.getElementById("signin-gate-btn").onclick = requestSignIn;
   document.getElementById("signout-btn").onclick = signOut;
   document.getElementById("calendar-refresh-btn").onclick = refreshCalendar;
+  document.getElementById("today-refresh-btn").onclick = refreshToday;
 
   document.getElementById("start-btn").onclick = startTimer;
   document.getElementById("pause-btn").onclick = pauseTimer;

@@ -248,6 +248,36 @@ select, input[type="number"], input[type="text"], input[type="date"], input[type
   align-items: center;
 }
 
+.today-summary {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 10px;
+}
+.today-row {
+  display: grid;
+  grid-template-columns: 110px 1fr 56px;
+  align-items: center;
+  gap: 10px;
+  font-size: 13px;
+}
+.today-row-label {
+  display: flex;
+  align-items: center;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.today-row-bar-wrap {
+  height: 10px;
+  border-radius: 5px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  overflow: hidden;
+}
+.today-row-bar { height: 100%; border-radius: 5px; }
+.today-row-value { text-align: right; color: var(--muted); }
+
 .calendar-day-headers {
   display: grid;
   grid-template-columns: 44px repeat(7, 1fr);

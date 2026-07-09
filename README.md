@@ -137,6 +137,25 @@ timezone), broken out per activity as a bar with its color and total
 time — updates as you log things, including live while the countdown timer
 is running.
 
+Each activity can have a daily **target** (in minutes), set via the number
+field next to its color swatch in "Manage activities". With a target set:
+- The bar fills toward that target (capped at 100%) and turns red once
+  you've gone over it.
+- The activity always shows in Today, even at 0 minutes, so an unmet goal
+  (e.g. haven't read yet) stays visible instead of just not appearing.
+- A target of **0** is a deliberate "should do none of this" goal (e.g. an
+  activity called "Brainrot") — the bar stays empty until any time at all
+  gets logged, at which point it goes fully red as an over-target warning.
+
+Leave the target field blank for "not tracked" — those activities only show
+up in Today if you've logged time under them, with bars scaled relative to
+each other rather than toward any goal, and default activities out of the
+box have no targets set. The default 4 sample targets (Work 4h, Meditate
+1h, Read 30m, Brainrot 0m) only apply to brand-new activity lists; if
+you already had activities saved before this feature, add/edit targets
+yourself via "Manage activities" — existing entries aren't retroactively
+assigned a target.
+
 Entries logged under an activity named exactly **"Sleep"** (case-insensitive)
 are excluded from these totals, since a night's sleep usually spans two
 calendar days and would otherwise show up as a confusing partial chunk on

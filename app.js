@@ -3,8 +3,17 @@ const ACTIVITY_COLOR_PALETTE = [
   "#5b8cff", "#ff6b6b", "#51cf66", "#fcc419", "#cc5de8",
   "#22b8cf", "#ff922b", "#94d82d", "#f06595", "#845ef7",
 ];
-const DEFAULT_ACTIVITIES = ["Work", "Read", "Exercise", "Break", "Meditate"].map((name, i) => ({
-  name,
+// targetMinutes: null means "not tracked" (no target set); 0 is a deliberate
+// "should do none of this" target (e.g. Brainrot), distinct from null.
+const DEFAULT_ACTIVITIES = [
+  { name: "Work", targetMinutes: 240 },
+  { name: "Read", targetMinutes: 30 },
+  { name: "Exercise", targetMinutes: null },
+  { name: "Break", targetMinutes: null },
+  { name: "Meditate", targetMinutes: 60 },
+  { name: "Brainrot", targetMinutes: 0 },
+].map((a, i) => ({
+  ...a,
   color: ACTIVITY_COLOR_PALETTE[i % ACTIVITY_COLOR_PALETTE.length],
 }));
 
@@ -178,14 +187,21 @@ let timer = {
 
 // ---------- Activities (stored locally, purely for the dropdown UI) ----------
 
-// Older versions stored activities as a plain array of name strings;
-// migrate those in place to {name, color} objects on first load.
+// Older versions stored activities as a plain array of name strings, then
+// later as {name, color}; migrate those in place to {name, color,
+// targetMinutes} on first load. Missing targetMinutes defaults to null
+// ("not tracked"), not 0, so existing activities don't silently gain a
+// "should do zero of this" target.
 function normalizeActivities(parsed) {
   if (!Array.isArray(parsed) || parsed.length === 0) return clonePresets(DEFAULT_ACTIVITIES);
   return parsed.map((item, i) =>
     typeof item === "string"
-      ? { name: item, color: ACTIVITY_COLOR_PALETTE[i % ACTIVITY_COLOR_PALETTE.length] }
-      : { name: item.name, color: item.color || ACTIVITY_COLOR_PALETTE[i % ACTIVITY_COLOR_PALETTE.length] }
+      ? { name: item, color: ACTIVITY_COLOR_PALETTE[i % ACTIVITY_COLOR_PALETTE.length], targetMinutes: null }
+      : {
+          name: item.name,
+          color: item.color || ACTIVITY_COLOR_PALETTE[i % ACTIVITY_COLOR_PALETTE.length],
+          targetMinutes: item.targetMinutes === undefined ? null : item.targetMinutes,
+        }
   );
 }
 
@@ -254,6 +270,27 @@ function renderManageModal() {
     span.textContent = act.name;
     span.className = "activity-name";
 
+    const targetWrap = document.createElement("span");
+    targetWrap.className = "activity-target-wrap";
+    const targetInput = document.createElement("input");
+    targetInput.type = "number";
+    targetInput.min = "0";
+    targetInput.className = "activity-target-input";
+    targetInput.placeholder = "none";
+    targetInput.title = "Daily target (minutes) — leave blank for no target";
+    if (act.targetMinutes !== null && act.targetMinutes !== undefined) {
+      targetInput.value = act.targetMinutes;
+    }
+    targetInput.onchange = () => {
+      act.targetMinutes = targetInput.value === "" ? null : Math.max(0, parseInt(targetInput.value) || 0);
+      saveActivities(activities);
+      refreshToday();
+    };
+    const targetLabel = document.createElement("span");
+    targetLabel.className = "hint";
+    targetLabel.textContent = "min/day";
+    targetWrap.append(targetInput, targetLabel);
+
     const btn = document.createElement("button");
     btn.textContent = "Remove";
     btn.onclick = () => {
@@ -261,9 +298,10 @@ function renderManageModal() {
       saveActivities(updated);
       renderManageModal();
       renderActivityOptions();
+      refreshToday();
     };
 
-    li.append(colorInput, span, btn);
+    li.append(colorInput, span, targetWrap, btn);
     list.appendChild(li);
   });
 }
@@ -1272,24 +1310,53 @@ async function refreshToday() {
 function renderTodaySummary(totals, lastSleep, tz) {
   const container = document.getElementById("today-summary");
   container.innerHTML = "";
-  const entries = Object.entries(totals).sort((a, b) => b[1] - a[1]);
 
-  if (entries.length === 0) {
+  const activities = loadActivities();
+  const targetByName = Object.fromEntries(
+    activities.filter((a) => a.targetMinutes !== null && a.targetMinutes !== undefined).map((a) => [a.name, a.targetMinutes])
+  );
+  // Targeted activities show even at 0 min today (so an unmet goal is
+  // visible), in the user's configured order; anything else logged today
+  // but without a target follows, busiest first.
+  const targetedNames = activities.map((a) => a.name).filter((name) => name in targetByName);
+  const extraNames = Object.keys(totals)
+    .filter((name) => !(name in targetByName))
+    .sort((a, b) => totals[b] - totals[a]);
+  const orderedNames = [...targetedNames, ...extraNames];
+
+  if (orderedNames.length === 0) {
     const empty = document.createElement("div");
     empty.className = "status";
     empty.textContent = "Nothing logged yet today.";
     container.appendChild(empty);
   } else {
-    const maxMinutes = Math.max(...entries.map(([, m]) => m));
-    for (const [name, minutes] of entries) {
+    const untargetedMax = Math.max(1, ...extraNames.map((n) => totals[n] || 0));
+    for (const name of orderedNames) {
+      const minutes = totals[name] || 0;
+      const target = name in targetByName ? targetByName[name] : null;
       const color = getActivityColor(name);
-      const pct = maxMinutes ? Math.round((minutes / maxMinutes) * 100) : 0;
       const row = document.createElement("div");
       row.className = "today-row";
+
+      let pct, barColor, valueText;
+      if (target === null) {
+        pct = Math.round((minutes / untargetedMax) * 100);
+        barColor = color;
+        valueText = formatMinutesShort(minutes);
+      } else if (target === 0) {
+        pct = minutes > 0 ? 100 : 0;
+        barColor = minutes > 0 ? "var(--danger)" : color;
+        valueText = minutes > 0 ? `${formatMinutesShort(minutes)} (target: none)` : "0m (target: none)";
+      } else {
+        pct = Math.min(Math.round((minutes / target) * 100), 100);
+        barColor = minutes > target ? "var(--danger)" : color;
+        valueText = `${formatMinutesShort(minutes)} / ${formatMinutesShort(target)}`;
+      }
+
       row.innerHTML = `
         <div class="today-row-label"><span class="activity-dot" style="background:${escapeHtml(color)}"></span>${escapeHtml(name)}</div>
-        <div class="today-row-bar-wrap"><div class="today-row-bar" style="width:${pct}%;background:${escapeHtml(color)}"></div></div>
-        <div class="today-row-value">${formatMinutesShort(minutes)}</div>
+        <div class="today-row-bar-wrap"><div class="today-row-bar" style="width:${pct}%;background:${barColor}"></div></div>
+        <div class="today-row-value">${escapeHtml(valueText)}</div>
       `;
       container.appendChild(row);
     }
@@ -1674,7 +1741,11 @@ document.addEventListener("DOMContentLoaded", () => {
     if (!name) return;
     const activities = loadActivities();
     if (!activities.some((a) => a.name === name)) {
-      activities.push({ name, color: ACTIVITY_COLOR_PALETTE[activities.length % ACTIVITY_COLOR_PALETTE.length] });
+      activities.push({
+        name,
+        color: ACTIVITY_COLOR_PALETTE[activities.length % ACTIVITY_COLOR_PALETTE.length],
+        targetMinutes: null,
+      });
     }
     saveActivities(activities);
     input.value = "";

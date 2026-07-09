@@ -512,11 +512,12 @@ select, input[type="number"], input[type="text"], input[type="date"], input[type
 #activities-list li {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 8px;
   padding: 6px 0;
   border-bottom: 1px solid var(--border);
+  flex-wrap: wrap;
 }
-#activities-list li .activity-name { flex: 1; }
+#activities-list li .activity-name { flex: 1; min-width: 60px; }
 #activities-list li button { padding: 4px 8px; font-size: 12px; }
 .activity-color-input {
   width: 28px;
@@ -527,6 +528,12 @@ select, input[type="number"], input[type="text"], input[type="date"], input[type
   background: none;
   cursor: pointer;
   flex: none;
+}
+.activity-target-wrap { display: flex; align-items: center; gap: 4px; flex: none; }
+.activity-target-input {
+  width: 52px;
+  padding: 4px 6px;
+  font-size: 12px;
 }
 
 .activity-dot {

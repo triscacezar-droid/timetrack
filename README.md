@@ -146,10 +146,16 @@ to read from and write to.
    number to rate the session (patches the entry that's already saved), or
    ignore it if you don't care to rate it.
 
-Every completed or manually-stopped run appends one row to your Google
-Sheet: date, activity, start time, end time, duration, timezone, and quality
-— all timestamps are stored in **UTC**, so your data stays consistent no
-matter which timezone you logged it from or later view it in.
+The Sheet row is written **live**, not just at the end: hitting Start
+immediately appends a row (0 min so far), every full minute that passes
+patches that same row's end time/duration to the elapsed time, and
+Stop/completion does one final patch with the exact end time. So if you
+check the Sheet (or the calendar) mid-session, you'll see it updating in
+close to real time instead of only appearing once you're done — useful if
+something else is watching the sheet, or you just want the reassurance that
+the timer really is logging. All timestamps are stored in **UTC**, so your
+data stays consistent no matter which timezone you logged it from or later
+view it in.
 
 While the countdown is running, the app requests a **screen wake lock** so
 your phone/laptop screen won't turn off mid-session (e.g. during a

@@ -171,6 +171,8 @@ let timer = {
   startedAt: null, // Date when the current run began (for logging real start time)
   intervalId: null,
   activeBellRules: [], // runtime copy of the selected preset's rules, with fire counters
+  liveRowNumber: null, // sheet row created at Start, kept updated every minute until Stop/completion
+  lastLiveUpdateMinute: 0,
 };
 
 // ---------- Activities (stored locally, purely for the dropdown UI) ----------
@@ -815,6 +817,54 @@ function startTimer() {
   updateTimerDisplay();
   tick();
   requestWakeLock();
+  beginLiveEntryPromise = beginLiveEntry();
+}
+
+// Stop/completion can happen before the Start write's round-trip finishes;
+// finalizeLiveEntry awaits this so it always has the real row number instead
+// of racing it and reporting a false "wasn't logged".
+let beginLiveEntryPromise = null;
+
+// Writes a row to the Sheet the instant the timer starts (0 min, end = start),
+// so it shows up immediately instead of only once the timer finishes. Every
+// minute that passes, that same row gets patched with the elapsed time so
+// far; Stop/completion does one final patch with the exact end time.
+async function beginLiveEntry() {
+  timer.liveRowNumber = null;
+  timer.lastLiveUpdateMinute = 0;
+  const timezone = document.getElementById("manual-timezone").value || getBrowserTimezone();
+  try {
+    const { rowNumber } = await appendEntry({
+      date: formatDate(timer.startedAt),
+      activity: timer.activity,
+      start: formatTime(timer.startedAt),
+      end: formatTime(timer.startedAt),
+      durationMin: 0,
+      notes: "",
+      timezone,
+      quality: "",
+    });
+    timer.liveRowNumber = rowNumber;
+    refreshCalendar();
+  } catch (err) {
+    setStatus("Failed to start live log: " + err.message);
+  }
+}
+
+async function updateLiveEntryProgress(elapsedMin) {
+  if (!timer.liveRowNumber) return;
+  const end = new Date(timer.startedAt.getTime() + elapsedMin * 60000);
+  const range = `${CONFIG.SHEET_NAME}!D${timer.liveRowNumber}:E${timer.liveRowNumber}`;
+  try {
+    await sheetsFetch(`/values/${encodeURIComponent(range)}?valueInputOption=USER_ENTERED`, {
+      method: "PUT",
+      body: JSON.stringify({ range, values: [[formatTime(end), elapsedMin]] }),
+    });
+    refreshCalendar();
+  } catch {
+    // transient failure (e.g. a momentarily expired token) — next minute's
+    // update, or the final one on Stop/completion, will just try again.
+  }
 }
 
 function tick() {
@@ -824,6 +874,11 @@ function tick() {
     timer.remainingSeconds -= 1;
     updateTimerDisplay();
     checkBellRules();
+    const elapsedMin = Math.floor((timer.totalSeconds - timer.remainingSeconds) / 60);
+    if (elapsedMin > timer.lastLiveUpdateMinute) {
+      timer.lastLiveUpdateMinute = elapsedMin;
+      updateLiveEntryProgress(elapsedMin);
+    }
     if (timer.remainingSeconds <= 0) {
       clearInterval(timer.intervalId);
       completeTimer();
@@ -844,7 +899,6 @@ function resumeTimer() {
 }
 
 async function completeTimer() {
-  const start = timer.startedAt;
   const end = new Date();
   const durationMin = Math.round(timer.totalSeconds / 60);
   timer.state = "idle";
@@ -852,11 +906,10 @@ async function completeTimer() {
   updateTimerDisplay();
   releaseWakeLock();
   notifyDone();
-  await stageTimerEntry(start, end, durationMin);
+  await finalizeLiveEntry(end, durationMin);
 }
 
 async function stopTimer() {
-  const start = timer.startedAt;
   const end = new Date();
   const elapsedSeconds = timer.totalSeconds - timer.remainingSeconds;
   const durationMin = Math.max(1, Math.round(elapsedSeconds / 60));
@@ -866,40 +919,40 @@ async function stopTimer() {
   setTimerButtons();
   updateTimerDisplay();
   releaseWakeLock();
-  await stageTimerEntry(start, end, durationMin);
+  await finalizeLiveEntry(end, durationMin);
 }
 
 let pendingQualityRow = null;
 
-// Logs the entry immediately — never silently drops it waiting on a quality
-// pick — then shows the quality picker as an optional follow-up patch.
-async function stageTimerEntry(start, end, durationMin) {
+async function finalizeLiveEntry(end, durationMin) {
+  if (beginLiveEntryPromise) {
+    await beginLiveEntryPromise;
+    beginLiveEntryPromise = null;
+  }
   const activity = timer.activity;
+  const rowNumber = timer.liveRowNumber;
   timer.activity = null;
   timer.startedAt = null;
+  timer.liveRowNumber = null;
   pendingQualityRow = null;
 
-  if (!accessToken) {
-    setStatus("Not signed in — entry not saved. Sign in with Google to log time.");
+  if (!rowNumber) {
+    setStatus("Entry wasn't logged (the initial write at Start never succeeded).");
     return;
   }
-  const timezone = document.getElementById("manual-timezone").value || getBrowserTimezone();
+  const range = `${CONFIG.SHEET_NAME}!D${rowNumber}:E${rowNumber}`;
   try {
-    const { rowNumber } = await appendEntry({
-      date: formatDate(start),
-      activity,
-      start: formatTime(start),
-      end: formatTime(end),
-      durationMin,
-      notes: "",
-      timezone,
-      quality: "",
+    await sheetsFetch(`/values/${encodeURIComponent(range)}?valueInputOption=USER_ENTERED`, {
+      method: "PUT",
+      body: JSON.stringify({ range, values: [[formatTime(end), durationMin]] }),
     });
+    setStatus(`Logged "${activity}" — ${durationMin} min.`);
+    refreshLog();
+    refreshCalendar();
     pendingQualityRow = rowNumber;
     document.getElementById("quality-picker").classList.remove("hidden");
-    refreshCalendar();
   } catch (err) {
-    setStatus("Failed to log entry: " + err.message);
+    setStatus("Failed to finalize entry: " + err.message);
   }
 }
 

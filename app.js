@@ -758,6 +758,35 @@ function setDurationMinutes(minutes) {
   document.getElementById("duration-seconds").value = 0;
 }
 
+// ---------- Screen wake lock (keeps the screen on while the timer runs) ----------
+
+let wakeLock = null;
+
+async function requestWakeLock() {
+  if (!("wakeLock" in navigator)) return;
+  try {
+    wakeLock = await navigator.wakeLock.request("screen");
+    wakeLock.addEventListener("release", () => {
+      wakeLock = null;
+    });
+  } catch {
+    wakeLock = null; // e.g. denied, or tab not visible — non-fatal, timer still runs
+  }
+}
+
+function releaseWakeLock() {
+  if (wakeLock) {
+    wakeLock.release().catch(() => {});
+    wakeLock = null;
+  }
+}
+
+document.addEventListener("visibilitychange", () => {
+  if (document.visibilityState === "visible" && timer.state === "running" && !wakeLock) {
+    requestWakeLock();
+  }
+});
+
 function startTimer() {
   const activity = document.getElementById("activity-select").value;
   const totalSeconds = getDurationSeconds();
@@ -785,6 +814,7 @@ function startTimer() {
   setTimerButtons();
   updateTimerDisplay();
   tick();
+  requestWakeLock();
 }
 
 function tick() {
@@ -804,11 +834,13 @@ function tick() {
 function pauseTimer() {
   timer.state = "paused";
   setTimerButtons();
+  releaseWakeLock();
 }
 
 function resumeTimer() {
   timer.state = "running";
   setTimerButtons();
+  requestWakeLock();
 }
 
 async function completeTimer() {
@@ -818,6 +850,7 @@ async function completeTimer() {
   timer.state = "idle";
   setTimerButtons();
   updateTimerDisplay();
+  releaseWakeLock();
   notifyDone();
   await stageTimerEntry(start, end, durationMin);
 }
@@ -832,6 +865,7 @@ async function stopTimer() {
   timer.remainingSeconds = 0;
   setTimerButtons();
   updateTimerDisplay();
+  releaseWakeLock();
   await stageTimerEntry(start, end, durationMin);
 }
 

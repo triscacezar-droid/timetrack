@@ -151,6 +151,15 @@ Sheet: date, activity, start time, end time, duration, timezone, and quality
 — all timestamps are stored in **UTC**, so your data stays consistent no
 matter which timezone you logged it from or later view it in.
 
+While the countdown is running, the app requests a **screen wake lock** so
+your phone/laptop screen won't turn off mid-session (e.g. during a
+meditation sit). It's released automatically when you pause, stop, or the
+timer completes, and re-requested if you switch back to the tab/app while
+still running. Requires a browser that supports the Screen Wake Lock API
+(recent Chrome/Edge/Android; Safari support is more limited) — on
+unsupported browsers this is silently skipped and the timer still works
+normally.
+
 ### Manual entry
 
 Use the "Add entry manually" form to log a block of time you didn't run the

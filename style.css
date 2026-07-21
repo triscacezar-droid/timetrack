@@ -106,6 +106,22 @@ body {
   padding: 24px 16px 64px;
 }
 
+@media (min-width: 900px) {
+  .app {
+    max-width: 1400px;
+  }
+  main#app-main {
+    display: grid;
+    grid-template-columns: 380px 1fr;
+    align-items: start;
+    gap: 20px;
+  }
+  .left-col, .right-col {
+    display: flex;
+    flex-direction: column;
+  }
+}
+
 header {
   display: flex;
   align-items: center;
@@ -277,6 +293,29 @@ select, input[type="number"], input[type="text"], input[type="date"], input[type
 }
 .today-row-bar { height: 100%; border-radius: 5px; }
 .today-row-value { text-align: right; color: var(--muted); }
+
+.calendar-nav {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  margin-top: 10px;
+  flex-wrap: wrap;
+}
+.calendar-nav-group {
+  display: flex;
+  gap: 4px;
+}
+.calendar-nav button {
+  padding: 6px 10px;
+  font-size: 13px;
+}
+.calendar-range-label {
+  min-width: 160px;
+  text-align: center;
+  font-size: 13px;
+  color: var(--muted);
+}
 
 .calendar-day-headers {
   display: grid;

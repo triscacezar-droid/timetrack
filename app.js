@@ -1166,6 +1166,11 @@ function renderTimelineHours() {
 const CALENDAR_HOURS = 24;
 const CALENDAR_HOUR_PX = 32;
 
+// Number of days back from today the visible 7-day window starts, in steps
+// of 7. 0 = current week (ending today), 7 = previous week, etc. Also
+// supports arbitrary day-granularity jumps via shiftCalendarByDays.
+let calendarDayOffset = 0;
+
 function addDaysToDateStr(dateStr, delta) {
   const d = new Date(`${dateStr}T00:00:00Z`);
   d.setUTCDate(d.getUTCDate() + delta);
@@ -1179,8 +1184,9 @@ function getCalendarDisplayTimezone() {
 function renderCalendarSkeleton() {
   const tz = getCalendarDisplayTimezone();
   const todayStr = utcToZonedParts(new Date(), tz).date;
+  const windowEndStr = addDaysToDateStr(todayStr, -calendarDayOffset);
   const days = [];
-  for (let i = 6; i >= 0; i--) days.push(addDaysToDateStr(todayStr, -i));
+  for (let i = 6; i >= 0; i--) days.push(addDaysToDateStr(windowEndStr, -i));
 
   const headersEl = document.getElementById("calendar-day-headers");
   headersEl.innerHTML = "";
@@ -1191,6 +1197,14 @@ function renderCalendarSkeleton() {
     cell.textContent = dObj.toLocaleDateString(undefined, { weekday: "short", day: "numeric", timeZone: "UTC" });
     if (dateStr === todayStr) cell.classList.add("today");
     headersEl.appendChild(cell);
+  }
+
+  const rangeLabelEl = document.getElementById("calendar-range-label");
+  if (rangeLabelEl) {
+    const startObj = new Date(`${days[0]}T00:00:00Z`);
+    const endObj = new Date(`${days[days.length - 1]}T00:00:00Z`);
+    const fmt = (d) => d.toLocaleDateString(undefined, { month: "short", day: "numeric", timeZone: "UTC" });
+    rangeLabelEl.textContent = calendarDayOffset === 0 ? `${fmt(startObj)} – ${fmt(endObj)} (this week)` : `${fmt(startObj)} – ${fmt(endObj)}`;
   }
 
   const body = document.getElementById("calendar-body");
@@ -1370,6 +1384,16 @@ function renderTodaySummary(totals, lastSleep, tz) {
   } else {
     sleepEl.textContent = 'Last sleep: no entries logged with an activity named "Sleep" yet.';
   }
+}
+
+function shiftCalendarByDays(deltaDays) {
+  calendarDayOffset = Math.max(0, calendarDayOffset + deltaDays);
+  refreshCalendar();
+}
+
+function jumpCalendarToThisWeek() {
+  calendarDayOffset = 0;
+  refreshCalendar();
 }
 
 async function refreshCalendar() {
@@ -1714,6 +1738,13 @@ document.addEventListener("DOMContentLoaded", () => {
   document.getElementById("signin-gate-btn").onclick = requestSignIn;
   document.getElementById("signout-btn").onclick = signOut;
   document.getElementById("calendar-refresh-btn").onclick = refreshCalendar;
+  document.getElementById("calendar-prev-day-btn").onclick = () => shiftCalendarByDays(1);
+  document.getElementById("calendar-next-day-btn").onclick = () => shiftCalendarByDays(-1);
+  document.getElementById("calendar-prev-week-btn").onclick = () => shiftCalendarByDays(7);
+  document.getElementById("calendar-next-week-btn").onclick = () => shiftCalendarByDays(-7);
+  document.getElementById("calendar-prev-month-btn").onclick = () => shiftCalendarByDays(30);
+  document.getElementById("calendar-next-month-btn").onclick = () => shiftCalendarByDays(-30);
+  document.getElementById("calendar-today-btn").onclick = jumpCalendarToThisWeek;
   document.getElementById("today-refresh-btn").onclick = refreshToday;
 
   document.getElementById("start-btn").onclick = startTimer;

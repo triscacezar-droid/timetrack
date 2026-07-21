@@ -35,6 +35,7 @@
     </div>
 
     <main id="app-main" class="hidden">
+      <div class="left-col">
       <section class="card timer-card">
         <div class="timer-display" id="timer-display">00:00:00</div>
 
@@ -156,11 +157,27 @@
           <button type="submit" class="primary">Add entry</button>
         </form>
       </section>
+      </div>
 
+      <div class="right-col">
       <section class="card calendar-card">
         <div class="log-header">
           <h2>This week</h2>
           <button id="calendar-refresh-btn">Refresh</button>
+        </div>
+        <div class="calendar-nav">
+          <div class="calendar-nav-group">
+            <button id="calendar-prev-month-btn" title="Back 30 days">«</button>
+            <button id="calendar-prev-week-btn" title="Back 1 week">‹‹</button>
+            <button id="calendar-prev-day-btn" title="Back 1 day">‹</button>
+          </div>
+          <div class="calendar-range-label" id="calendar-range-label"></div>
+          <button id="calendar-today-btn">This week</button>
+          <div class="calendar-nav-group">
+            <button id="calendar-next-day-btn" title="Forward 1 day">›</button>
+            <button id="calendar-next-week-btn" title="Forward 1 week">››</button>
+            <button id="calendar-next-month-btn" title="Forward 30 days">»</button>
+          </div>
         </div>
         <div class="hint">Click or drag on the grid to start a new entry there.</div>
         <div class="calendar-day-headers" id="calendar-day-headers"></div>
@@ -177,6 +194,7 @@
         </div>
         <div id="log-list" class="log-list"></div>
       </section>
+      </div>
     </main>
 
     <div id="manage-modal" class="modal hidden">

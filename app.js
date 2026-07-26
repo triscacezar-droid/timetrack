@@ -833,6 +833,14 @@ document.addEventListener("visibilitychange", () => {
 });
 
 function startTimer() {
+  // Some browsers silently ignore Notification.requestPermission() unless
+  // it's called from inside a user gesture — the Start click is one, so ask
+  // here too (the load-time attempt in init() can otherwise get dropped and
+  // leave permission stuck on "default" forever, meaning the finish alert
+  // never appears at all).
+  if ("Notification" in window && Notification.permission === "default") {
+    Notification.requestPermission();
+  }
   const activity = document.getElementById("activity-select").value;
   const totalSeconds = getDurationSeconds();
   if (!activity) {
@@ -1093,7 +1101,15 @@ function notifyDone() {
     osc.start();
     setTimeout(() => osc.stop(), 300);
   } catch {}
-  if (!("Notification" in window) || Notification.permission !== "granted") return;
+  if (!("Notification" in window)) return;
+  if (Notification.permission !== "granted") {
+    setStatus(
+      Notification.permission === "denied"
+        ? "Timer finished — browser notifications are blocked, so nothing popped up. Enable them for this site in your browser settings."
+        : "Timer finished."
+    );
+    return;
+  }
   const options = {
     body: `${timer.activity || "Timer"} is done.`,
     icon: "icon-192.png",

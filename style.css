@@ -236,9 +236,16 @@ select, input[type="number"], input[type="text"], input[type="date"], input[type
 .preset-buttons { display: flex; gap: 6px; }
 .preset-buttons button { padding: 6px 10px; }
 
-.duration-inputs { display: flex; gap: 8px; flex: 1; min-width: 180px; }
-.duration-field { display: flex; align-items: center; gap: 6px; flex: 1; }
-.duration-field input[type="number"] { width: 100%; min-width: 0; text-align: center; }
+.duration-inputs { display: flex; gap: 8px; flex: 1; min-width: 220px; }
+.duration-field { display: flex; align-items: center; gap: 6px; flex: 1; min-width: 56px; }
+.duration-field input[type="number"] {
+  width: 100%;
+  min-width: 0;
+  text-align: center;
+  font-size: 18px;
+  font-weight: 600;
+  padding: 10px 4px;
+}
 
 .hint { color: var(--muted); font-size: 12px; }
 #meditation-bells-toggle { flex: none; width: 18px; height: 18px; }

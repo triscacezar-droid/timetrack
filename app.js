@@ -180,6 +180,7 @@ let timer = {
   activity: null,
   startedAt: null, // Date when the current run began (for logging real start time)
   intervalId: null,
+  pausedAt: null, // Date when pause began, used to shift startedAt forward on resume
   activeBellRules: [], // runtime copy of the selected preset's rules, with fire counters
   liveRowNumber: null, // sheet row created at Start, kept updated every minute until Stop/completion
   lastLiveUpdateMinute: 0,
@@ -911,32 +912,56 @@ async function updateLiveEntryProgress(elapsedMin) {
   }
 }
 
+// Background tabs get their setInterval throttled (Chrome clamps to ~1/min
+// after 5 min hidden), so each tick recomputes remainingSeconds from the
+// wall-clock start time rather than trusting the tick count — that way a
+// delayed tick still reports (and completes) at the right moment instead of
+// drifting later and later the longer the tab stays backgrounded.
 function tick() {
   clearInterval(timer.intervalId);
   timer.intervalId = setInterval(() => {
     if (timer.state !== "running") return;
-    timer.remainingSeconds -= 1;
-    updateTimerDisplay();
-    checkBellRules();
-    const elapsedMin = Math.floor((timer.totalSeconds - timer.remainingSeconds) / 60);
-    if (elapsedMin > timer.lastLiveUpdateMinute) {
-      timer.lastLiveUpdateMinute = elapsedMin;
-      updateLiveEntryProgress(elapsedMin);
-    }
-    if (timer.remainingSeconds <= 0) {
-      clearInterval(timer.intervalId);
-      completeTimer();
-    }
+    advanceTimer();
   }, 1000);
 }
 
+function advanceTimer() {
+  const elapsedSeconds = Math.floor((Date.now() - timer.startedAt.getTime()) / 1000);
+  timer.remainingSeconds = Math.max(0, timer.totalSeconds - elapsedSeconds);
+  updateTimerDisplay();
+  checkBellRules();
+  const elapsedMin = Math.floor((timer.totalSeconds - timer.remainingSeconds) / 60);
+  if (elapsedMin > timer.lastLiveUpdateMinute) {
+    timer.lastLiveUpdateMinute = elapsedMin;
+    updateLiveEntryProgress(elapsedMin);
+  }
+  if (timer.remainingSeconds <= 0) {
+    clearInterval(timer.intervalId);
+    completeTimer();
+  }
+}
+
+// Catch up instantly the moment the tab regains visibility/focus, in case a
+// throttled background tab hadn't ticked since the timer actually finished.
+document.addEventListener("visibilitychange", () => {
+  if (!document.hidden && timer.state === "running") advanceTimer();
+});
+window.addEventListener("focus", () => {
+  if (timer.state === "running") advanceTimer();
+});
+
 function pauseTimer() {
   timer.state = "paused";
+  timer.pausedAt = new Date();
   setTimerButtons();
   releaseWakeLock();
 }
 
 function resumeTimer() {
+  if (timer.pausedAt) {
+    timer.startedAt = new Date(timer.startedAt.getTime() + (Date.now() - timer.pausedAt.getTime()));
+    timer.pausedAt = null;
+  }
   timer.state = "running";
   setTimerButtons();
   requestWakeLock();
@@ -1068,8 +1093,21 @@ function notifyDone() {
     osc.start();
     setTimeout(() => osc.stop(), 300);
   } catch {}
-  if (document.hidden && "Notification" in window && Notification.permission === "granted") {
-    new Notification("TimeTrack", { body: "Timer finished." });
+  if (!("Notification" in window) || Notification.permission !== "granted") return;
+  const options = {
+    body: `${timer.activity || "Timer"} is done.`,
+    icon: "icon-192.png",
+    badge: "icon-192.png",
+    tag: "timetrack-done",
+    requireInteraction: true,
+  };
+  // Routing through the service worker (when available) shows an OS-level
+  // notification that survives even if this tab gets suspended right as the
+  // timer ends, and lets the SW focus/open the app on click.
+  if ("serviceWorker" in navigator) {
+    navigator.serviceWorker.ready.then((reg) => reg.showNotification("TimeTrack", options));
+  } else {
+    new Notification("TimeTrack", options);
   }
 }
 

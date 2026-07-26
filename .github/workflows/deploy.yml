@@ -28,12 +28,14 @@ jobs:
           CLIENT_ID: ${{ secrets.TIMETRACK_CLIENT_ID }}
           SPREADSHEET_ID: ${{ secrets.TIMETRACK_SPREADSHEET_ID }}
           SHEET_NAME: ${{ secrets.TIMETRACK_SHEET_NAME }}
+          SECONDARY_SHEET_NAME: ${{ secrets.TIMETRACK_SECONDARY_SHEET_NAME }}
         run: |
           cat > config.js <<EOF
           const CONFIG = {
             CLIENT_ID: "${CLIENT_ID}",
             SPREADSHEET_ID: "${SPREADSHEET_ID}",
             SHEET_NAME: "${SHEET_NAME:-Sheet1}",
+            SECONDARY_SHEET_NAME: "${SECONDARY_SHEET_NAME}",
           };
           EOF
 

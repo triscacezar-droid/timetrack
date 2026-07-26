@@ -609,41 +609,41 @@ async function appendEntry({ date, activity, start, end, durationMin, notes, tim
   return { rowNumber: match ? parseInt(match[1]) : null };
 }
 
-async function updateEntryFull(rowNumber, { date, activity, start, end, durationMin, timezone }) {
-  const range = `${CONFIG.SHEET_NAME}!A${rowNumber}:E${rowNumber}`;
+async function updateEntryFull(sheetName, rowNumber, { date, activity, start, end, durationMin, timezone }) {
+  const range = `${sheetName}!A${rowNumber}:E${rowNumber}`;
   await sheetsFetch(`/values/${encodeURIComponent(range)}?valueInputOption=USER_ENTERED`, {
     method: "PUT",
     body: JSON.stringify({ range, values: [[date, activity, start, end, durationMin]] }),
   });
-  const tzRange = `${CONFIG.SHEET_NAME}!G${rowNumber}:G${rowNumber}`;
+  const tzRange = `${sheetName}!G${rowNumber}:G${rowNumber}`;
   await sheetsFetch(`/values/${encodeURIComponent(tzRange)}?valueInputOption=USER_ENTERED`, {
     method: "PUT",
     body: JSON.stringify({ range: tzRange, values: [[timezone || ""]] }),
   });
 }
 
-async function updateEntryQuality(rowNumber, quality) {
+async function updateEntryQuality(sheetName, rowNumber, quality) {
   if (!rowNumber) return;
-  const range = `${CONFIG.SHEET_NAME}!H${rowNumber}:H${rowNumber}`;
+  const range = `${sheetName}!H${rowNumber}:H${rowNumber}`;
   await sheetsFetch(`/values/${encodeURIComponent(range)}?valueInputOption=USER_ENTERED`, {
     method: "PUT",
     body: JSON.stringify({ range, values: [[quality]] }),
   });
 }
 
-let cachedSheetId = null;
+const cachedSheetIds = {};
 
-async function getSheetId() {
-  if (cachedSheetId !== null) return cachedSheetId;
+async function getSheetId(sheetName) {
+  if (cachedSheetIds[sheetName] !== undefined) return cachedSheetIds[sheetName];
   const data = await sheetsFetch(`?fields=${encodeURIComponent("sheets.properties")}`);
-  const sheet = (data.sheets || []).find((s) => s.properties.title === CONFIG.SHEET_NAME);
-  if (!sheet) throw new Error(`Sheet tab "${CONFIG.SHEET_NAME}" not found`);
-  cachedSheetId = sheet.properties.sheetId;
-  return cachedSheetId;
+  const sheet = (data.sheets || []).find((s) => s.properties.title === sheetName);
+  if (!sheet) throw new Error(`Sheet tab "${sheetName}" not found`);
+  cachedSheetIds[sheetName] = sheet.properties.sheetId;
+  return cachedSheetIds[sheetName];
 }
 
-async function deleteEntryRow(rowNumber) {
-  const sheetId = await getSheetId();
+async function deleteEntryRow(sheetName, rowNumber) {
+  const sheetId = await getSheetId(sheetName);
   await sheetsFetch(`:batchUpdate`, {
     method: "POST",
     body: JSON.stringify({
@@ -658,13 +658,36 @@ async function deleteEntryRow(rowNumber) {
   });
 }
 
+// Sheets whose entries are merged in wherever entries are read/displayed.
+function readSheetNames() {
+  return [CONFIG.SHEET_NAME, CONFIG.SECONDARY_SHEET_NAME].filter(Boolean);
+}
+
+// Fetches A2:H from every configured sheet and tags each row with the sheet
+// it came from plus its row number within that sheet, so edits/deletes can
+// be routed back to the right tab.
+async function fetchMergedRows() {
+  const results = await Promise.all(
+    readSheetNames().map(async (sheetName) => {
+      const range = `${sheetName}!A2:H`;
+      const data = await sheetsFetch(`/values/${encodeURIComponent(range)}`);
+      const rows = data.values || [];
+      return rows.map((row, i) => ({ row, rowNumber: i + 2, sheetName }));
+    })
+  );
+  return results.flat();
+}
+
+function entryStartMs({ row }) {
+  const [date, , start] = row;
+  if (!date || !start) return NaN;
+  return new Date(`${date}T${start}:00Z`).getTime();
+}
+
 async function fetchRecentEntries(limit = 50) {
-  const range = `${CONFIG.SHEET_NAME}!A2:H`;
-  const data = await sheetsFetch(`/values/${encodeURIComponent(range)}`);
-  const rows = data.values || [];
-  // Row 1 is the header, so data row i (0-based) lives on sheet row i+2.
-  const withRowNumbers = rows.map((row, i) => ({ row, rowNumber: i + 2 }));
-  return withRowNumbers.slice(-limit).reverse();
+  const entries = await fetchMergedRows();
+  entries.sort((a, b) => entryStartMs(a) - entryStartMs(b));
+  return entries.slice(-limit).reverse();
 }
 
 // Swaps a log entry's normal display for an inline form so its activity,
@@ -672,7 +695,7 @@ async function fetchRecentEntries(limit = 50) {
 // re-logging it. `date`/`start`/`end`/`timezone` are the already-localized
 // display values shown in the list, not the raw UTC values stored in the
 // sheet — they get converted back to UTC on save.
-function renderLogEntryEditForm(div, { rowNumber, activity, date, start, end, timezone }) {
+function renderLogEntryEditForm(div, { sheetName, rowNumber, activity, date, start, end, timezone }) {
   div.innerHTML = "";
   div.classList.add("log-entry-editing");
 
@@ -752,7 +775,7 @@ function renderLogEntryEditForm(div, { rowNumber, activity, date, start, end, ti
     const startUtc = zonedToUtc(dateInput.value, startInput.value, tzSelect.value);
     const endUtc = new Date(startUtc.getTime() + durationMin * 60000);
     try {
-      await updateEntryFull(rowNumber, {
+      await updateEntryFull(sheetName, rowNumber, {
         date: formatDate(startUtc),
         activity: activitySelect.value,
         start: formatTime(startUtc),
@@ -780,7 +803,7 @@ async function refreshLog() {
       listEl.innerHTML = '<div class="status">No entries yet.</div>';
       return;
     }
-    for (const { row, rowNumber } of entries) {
+    for (const { row, rowNumber, sheetName } of entries) {
       const [date, activity, start, end, duration, notes, timezone, quality] = row;
       const tz = timezone || getBrowserTimezone();
       let displayDate = date, displayStart = start, displayEnd = end;
@@ -798,6 +821,7 @@ async function refreshLog() {
       const div = document.createElement("div");
       div.className = "log-entry";
       div.dataset.rowNumber = String(rowNumber);
+      div.dataset.sheetName = sheetName;
 
       const infoDiv = document.createElement("div");
       infoDiv.innerHTML = `
@@ -819,6 +843,7 @@ async function refreshLog() {
       editBtn.textContent = "✏️";
       editBtn.onclick = () =>
         renderLogEntryEditForm(div, {
+          sheetName,
           rowNumber,
           activity,
           date: displayDate,
@@ -831,9 +856,9 @@ async function refreshLog() {
       deleteBtn.className = "delete-entry-btn";
       deleteBtn.title = "Delete entry";
       deleteBtn.textContent = "🗑";
-      deleteBtn.onclick = () => confirmDeleteEntry(rowNumber, activity);
+      deleteBtn.onclick = () => confirmDeleteEntry(sheetName, rowNumber, activity);
       topRow.append(durationSpan, editBtn, deleteBtn);
-      const qualityRow = renderQualityMiniButtons(rowNumber, quality);
+      const qualityRow = renderQualityMiniButtons(sheetName, rowNumber, quality);
       rightDiv.append(topRow, qualityRow);
 
       div.append(infoDiv, rightDiv);
@@ -844,11 +869,11 @@ async function refreshLog() {
   }
 }
 
-async function confirmDeleteEntry(rowNumber, activity) {
+async function confirmDeleteEntry(sheetName, rowNumber, activity) {
   const ok = window.confirm(`Delete this "${activity || "entry"}" log? This can't be undone.`);
   if (!ok) return;
   try {
-    await deleteEntryRow(rowNumber);
+    await deleteEntryRow(sheetName, rowNumber);
     setStatus("Entry deleted.");
     refreshLog();
     refreshCalendar();
@@ -858,8 +883,10 @@ async function confirmDeleteEntry(rowNumber, activity) {
   }
 }
 
-function highlightLogEntry(rowNumber) {
-  const el = document.querySelector(`.log-entry[data-row-number="${rowNumber}"]`);
+function highlightLogEntry(sheetName, rowNumber) {
+  const el = document.querySelector(
+    `.log-entry[data-row-number="${rowNumber}"][data-sheet-name="${sheetName}"]`
+  );
   if (!el) {
     setStatus("That entry isn't in the Recent entries list (hit Refresh, or it's older than the last 10).");
     return;
@@ -869,7 +896,7 @@ function highlightLogEntry(rowNumber) {
   setTimeout(() => el.classList.remove("highlighted"), 2000);
 }
 
-function renderQualityMiniButtons(rowNumber, currentQuality) {
+function renderQualityMiniButtons(sheetName, rowNumber, currentQuality) {
   const wrap = document.createElement("div");
   wrap.className = "quality-buttons mini";
   for (let i = 0; i <= 5; i++) {
@@ -882,7 +909,7 @@ function renderQualityMiniButtons(rowNumber, currentQuality) {
       wrap.querySelectorAll("button").forEach((b) => b.classList.remove("selected"));
       if (newQuality !== "") btn.classList.add("selected");
       try {
-        await updateEntryQuality(rowNumber, newQuality);
+        await updateEntryQuality(sheetName, rowNumber, newQuality);
       } catch (err) {
         setStatus("Failed to update quality: " + err.message);
       }
@@ -1170,7 +1197,7 @@ async function finalizeTimerEntry(quality) {
   pendingQualityRow = null;
   if (!rowNumber || quality === "") return;
   try {
-    await updateEntryQuality(rowNumber, quality);
+    await updateEntryQuality(CONFIG.SHEET_NAME, rowNumber, quality);
     refreshLog();
   } catch (err) {
     setStatus("Entry logged, but failed to save quality rating: " + err.message);
@@ -1471,14 +1498,12 @@ async function refreshToday() {
   const todayStr = utcToZonedParts(new Date(), tz).date;
 
   try {
-    const range = `${CONFIG.SHEET_NAME}!A2:H`;
-    const data = await sheetsFetch(`/values/${encodeURIComponent(range)}`);
-    const rows = data.values || [];
+    const entries = await fetchMergedRows();
 
     const totals = {}; // activity name -> minutes logged today
     let lastSleep = null; // most recent sleep entry, any date
 
-    for (const row of rows) {
+    for (const { row } of entries) {
       const [date, activity, start, , duration] = row;
       if (!date || !start) continue;
       const startUtc = new Date(`${date}T${start}:00Z`);
@@ -1588,11 +1613,8 @@ async function refreshCalendar() {
   const totalHeight = CALENDAR_HOUR_PX * CALENDAR_HOURS;
 
   try {
-    const range = `${CONFIG.SHEET_NAME}!A2:H`;
-    const data = await sheetsFetch(`/values/${encodeURIComponent(range)}`);
-    const rows = data.values || [];
-    rows.forEach((row, i) => {
-      const rowNumber = i + 2;
+    const entries = await fetchMergedRows();
+    entries.forEach(({ row, rowNumber, sheetName }) => {
       const [date, activity, start, , duration, notes, , quality] = row;
       if (!date || !start) return;
       const startUtc = new Date(`${date}T${start}:00Z`);
@@ -1622,13 +1644,14 @@ async function refreshCalendar() {
         block.style.height = `${height}px`;
         block.style.background = getActivityColor(activity);
         block.dataset.rowNumber = String(rowNumber);
+        block.dataset.sheetName = sheetName;
         const label = segIdx === 0 ? (activity || "") : `↳ ${activity || ""}`;
         block.innerHTML = `<div>${escapeHtml(label)}</div><div class="cb-time">${escapeHtml(localStart.time)}–${escapeHtml(localEnd.time)}</div>`;
         block.title = tooltip;
         block.addEventListener("pointerdown", (e) => e.stopPropagation());
         block.addEventListener("click", (e) => {
           e.stopPropagation();
-          highlightLogEntry(rowNumber);
+          highlightLogEntry(sheetName, rowNumber);
         });
         dayCols[idx].appendChild(block);
       });

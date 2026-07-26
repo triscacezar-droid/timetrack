@@ -609,6 +609,19 @@ async function appendEntry({ date, activity, start, end, durationMin, notes, tim
   return { rowNumber: match ? parseInt(match[1]) : null };
 }
 
+async function updateEntryFull(rowNumber, { date, activity, start, end, durationMin, timezone }) {
+  const range = `${CONFIG.SHEET_NAME}!A${rowNumber}:E${rowNumber}`;
+  await sheetsFetch(`/values/${encodeURIComponent(range)}?valueInputOption=USER_ENTERED`, {
+    method: "PUT",
+    body: JSON.stringify({ range, values: [[date, activity, start, end, durationMin]] }),
+  });
+  const tzRange = `${CONFIG.SHEET_NAME}!G${rowNumber}:G${rowNumber}`;
+  await sheetsFetch(`/values/${encodeURIComponent(tzRange)}?valueInputOption=USER_ENTERED`, {
+    method: "PUT",
+    body: JSON.stringify({ range: tzRange, values: [[timezone || ""]] }),
+  });
+}
+
 async function updateEntryQuality(rowNumber, quality) {
   if (!rowNumber) return;
   const range = `${CONFIG.SHEET_NAME}!H${rowNumber}:H${rowNumber}`;
@@ -654,6 +667,109 @@ async function fetchRecentEntries(limit = 50) {
   return withRowNumbers.slice(-limit).reverse();
 }
 
+// Swaps a log entry's normal display for an inline form so its activity,
+// date, start/end time, and timezone can be corrected without deleting and
+// re-logging it. `date`/`start`/`end`/`timezone` are the already-localized
+// display values shown in the list, not the raw UTC values stored in the
+// sheet — they get converted back to UTC on save.
+function renderLogEntryEditForm(div, { rowNumber, activity, date, start, end, timezone }) {
+  div.innerHTML = "";
+  div.classList.add("log-entry-editing");
+
+  const form = document.createElement("form");
+  form.className = "log-entry-edit-form";
+
+  const activitySelect = document.createElement("select");
+  for (const a of loadActivities()) {
+    const opt = document.createElement("option");
+    opt.value = a.name;
+    opt.textContent = a.name;
+    if (a.name === activity) opt.selected = true;
+    activitySelect.appendChild(opt);
+  }
+  if (!loadActivities().some((a) => a.name === activity)) {
+    const opt = document.createElement("option");
+    opt.value = activity;
+    opt.textContent = activity;
+    opt.selected = true;
+    activitySelect.prepend(opt);
+  }
+
+  const dateInput = document.createElement("input");
+  dateInput.type = "date";
+  dateInput.value = date;
+
+  const startInput = document.createElement("input");
+  startInput.type = "time";
+  startInput.value = start;
+
+  const endInput = document.createElement("input");
+  endInput.type = "time";
+  endInput.value = end;
+
+  const tzSelect = document.createElement("select");
+  for (const tz of getTimezoneList()) {
+    const opt = document.createElement("option");
+    opt.value = tz;
+    opt.textContent = tz;
+    if (tz === timezone) opt.selected = true;
+    tzSelect.appendChild(opt);
+  }
+
+  const row1 = document.createElement("div");
+  row1.className = "log-entry-edit-row";
+  row1.append(activitySelect, dateInput);
+
+  const row2 = document.createElement("div");
+  row2.className = "log-entry-edit-row";
+  row2.append(startInput, endInput, tzSelect);
+
+  const btnRow = document.createElement("div");
+  btnRow.className = "log-entry-edit-row";
+  const saveBtn = document.createElement("button");
+  saveBtn.type = "submit";
+  saveBtn.className = "primary";
+  saveBtn.textContent = "Save";
+  const cancelBtn = document.createElement("button");
+  cancelBtn.type = "button";
+  cancelBtn.textContent = "Cancel";
+  cancelBtn.onclick = () => refreshLog();
+  btnRow.append(saveBtn, cancelBtn);
+
+  form.append(row1, row2, btnRow);
+  div.appendChild(form);
+
+  form.onsubmit = async (e) => {
+    e.preventDefault();
+    let endMin = minutesOfDay(endInput.value);
+    const startMin = minutesOfDay(startInput.value);
+    if (endMin <= startMin) endMin += DAY_MINUTES; // end rolled past midnight
+    const durationMin = endMin - startMin;
+    if (!activitySelect.value || !dateInput.value || !startInput.value || !endInput.value || durationMin <= 0) {
+      setStatus("Fill in all fields with a valid time range.");
+      return;
+    }
+    const startUtc = zonedToUtc(dateInput.value, startInput.value, tzSelect.value);
+    const endUtc = new Date(startUtc.getTime() + durationMin * 60000);
+    try {
+      await updateEntryFull(rowNumber, {
+        date: formatDate(startUtc),
+        activity: activitySelect.value,
+        start: formatTime(startUtc),
+        end: formatTime(endUtc),
+        durationMin,
+        timezone: tzSelect.value,
+      });
+      setStatus("Entry updated.");
+      refreshLog();
+      refreshCalendar();
+      refreshToday();
+    } catch (err) {
+      setStatus("Failed to update entry: " + err.message);
+    }
+  };
+}
+
 async function refreshLog() {
   const listEl = document.getElementById("log-list");
   if (!accessToken) return;
@@ -696,13 +812,27 @@ async function refreshLog() {
       const durationSpan = document.createElement("div");
       durationSpan.className = "meta";
       durationSpan.textContent = `${duration || ""} min`;
+      const editBtn = document.createElement("button");
+      editBtn.type = "button";
+      editBtn.className = "edit-entry-btn";
+      editBtn.title = "Edit entry";
+      editBtn.textContent = "✏️";
+      editBtn.onclick = () =>
+        renderLogEntryEditForm(div, {
+          rowNumber,
+          activity,
+          date: displayDate,
+          start: displayStart,
+          end: displayEnd.replace(" (+1d)", ""),
+          timezone: tz,
+        });
       const deleteBtn = document.createElement("button");
       deleteBtn.type = "button";
       deleteBtn.className = "delete-entry-btn";
       deleteBtn.title = "Delete entry";
       deleteBtn.textContent = "🗑";
       deleteBtn.onclick = () => confirmDeleteEntry(rowNumber, activity);
-      topRow.append(durationSpan, deleteBtn);
+      topRow.append(durationSpan, editBtn, deleteBtn);
       const qualityRow = renderQualityMiniButtons(rowNumber, quality);
       rightDiv.append(topRow, qualityRow);
 

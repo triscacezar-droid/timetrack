@@ -659,8 +659,39 @@ async function deleteEntryRow(sheetName, rowNumber) {
 }
 
 // Sheets whose entries are merged in wherever entries are read/displayed.
+// The secondary sheet can be hidden by the user (see initSecondarySheetToggle),
+// e.g. to exclude an externally-synced source like phone browser usage.
 function readSheetNames() {
-  return [CONFIG.SHEET_NAME, CONFIG.SECONDARY_SHEET_NAME].filter(Boolean);
+  const names = [CONFIG.SHEET_NAME];
+  if (CONFIG.SECONDARY_SHEET_NAME && !isSecondarySheetHidden()) {
+    names.push(CONFIG.SECONDARY_SHEET_NAME);
+  }
+  return names;
+}
+
+function isSecondarySheetHidden() {
+  return localStorage.getItem("hideSecondarySheet") === "true";
+}
+
+function initSecondarySheetToggle() {
+  const btn = document.getElementById("toggle-secondary-btn");
+  if (!CONFIG.SECONDARY_SHEET_NAME) return; // feature unused, keep button hidden
+  btn.classList.remove("hidden");
+
+  const render = () => {
+    btn.textContent = isSecondarySheetHidden()
+      ? `Show ${CONFIG.SECONDARY_SHEET_NAME}`
+      : `Hide ${CONFIG.SECONDARY_SHEET_NAME}`;
+  };
+  render();
+
+  btn.onclick = () => {
+    localStorage.setItem("hideSecondarySheet", String(!isSecondarySheetHidden()));
+    render();
+    refreshLog();
+    refreshCalendar();
+    refreshToday();
+  };
 }
 
 // Fetches A2:H from every configured sheet and tags each row with the sheet
@@ -1907,6 +1938,7 @@ function checkConfig() {
 
 document.addEventListener("DOMContentLoaded", () => {
   initTheme();
+  initSecondarySheetToggle();
   renderActivityOptions();
   renderBellPresetOptions();
 

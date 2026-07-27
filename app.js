@@ -609,11 +609,11 @@ async function appendEntry({ date, activity, start, end, durationMin, notes, tim
   return { rowNumber: match ? parseInt(match[1]) : null };
 }
 
-async function updateEntryFull(sheetName, rowNumber, { date, activity, start, end, durationMin, timezone }) {
-  const range = `${sheetName}!A${rowNumber}:E${rowNumber}`;
+async function updateEntryFull(sheetName, rowNumber, { date, activity, start, end, durationMin, notes, timezone }) {
+  const range = `${sheetName}!A${rowNumber}:F${rowNumber}`;
   await sheetsFetch(`/values/${encodeURIComponent(range)}?valueInputOption=USER_ENTERED`, {
     method: "PUT",
-    body: JSON.stringify({ range, values: [[date, activity, start, end, durationMin]] }),
+    body: JSON.stringify({ range, values: [[date, activity, start, end, durationMin, notes || ""]] }),
   });
   const tzRange = `${sheetName}!G${rowNumber}:G${rowNumber}`;
   await sheetsFetch(`/values/${encodeURIComponent(tzRange)}?valueInputOption=USER_ENTERED`, {
@@ -726,7 +726,7 @@ async function fetchRecentEntries(limit = 50) {
 // re-logging it. `date`/`start`/`end`/`timezone` are the already-localized
 // display values shown in the list, not the raw UTC values stored in the
 // sheet — they get converted back to UTC on save.
-function renderLogEntryEditForm(div, { sheetName, rowNumber, activity, date, start, end, timezone }) {
+function renderLogEntryEditForm(div, { sheetName, rowNumber, activity, date, start, end, timezone, notes }) {
   div.innerHTML = "";
   div.classList.add("log-entry-editing");
 
@@ -770,6 +770,11 @@ function renderLogEntryEditForm(div, { sheetName, rowNumber, activity, date, sta
     tzSelect.appendChild(opt);
   }
 
+  const notesInput = document.createElement("input");
+  notesInput.type = "text";
+  notesInput.placeholder = "Notes";
+  notesInput.value = notes || "";
+
   const row1 = document.createElement("div");
   row1.className = "log-entry-edit-row";
   row1.append(activitySelect, dateInput);
@@ -777,6 +782,10 @@ function renderLogEntryEditForm(div, { sheetName, rowNumber, activity, date, sta
   const row2 = document.createElement("div");
   row2.className = "log-entry-edit-row";
   row2.append(startInput, endInput, tzSelect);
+
+  const row3 = document.createElement("div");
+  row3.className = "log-entry-edit-row";
+  row3.append(notesInput);
 
   const btnRow = document.createElement("div");
   btnRow.className = "log-entry-edit-row";
@@ -790,7 +799,7 @@ function renderLogEntryEditForm(div, { sheetName, rowNumber, activity, date, sta
   cancelBtn.onclick = () => refreshLog();
   btnRow.append(saveBtn, cancelBtn);
 
-  form.append(row1, row2, btnRow);
+  form.append(row1, row2, row3, btnRow);
   div.appendChild(form);
 
   form.onsubmit = async (e) => {
@@ -812,6 +821,7 @@ function renderLogEntryEditForm(div, { sheetName, rowNumber, activity, date, sta
         start: formatTime(startUtc),
         end: formatTime(endUtc),
         durationMin,
+        notes: notesInput.value,
         timezone: tzSelect.value,
       });
       setStatus("Entry updated.");
@@ -881,6 +891,7 @@ async function refreshLog() {
           start: displayStart,
           end: displayEnd.replace(" (+1d)", ""),
           timezone: tz,
+          notes,
         });
       const deleteBtn = document.createElement("button");
       deleteBtn.type = "button";

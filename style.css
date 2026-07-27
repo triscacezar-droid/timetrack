@@ -388,6 +388,13 @@ select, input[type="number"], input[type="text"], input[type="date"], input[type
 }
 .calendar-block:hover { opacity: 1; outline: 2px solid #fff; }
 .calendar-block .cb-time { opacity: 0.8; }
+.calendar-block .cb-note {
+  opacity: 0.85;
+  font-style: italic;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
 
 .calendar-drag-preview {
   position: absolute;

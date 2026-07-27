@@ -1677,7 +1677,8 @@ async function refreshCalendar() {
         block.dataset.rowNumber = String(rowNumber);
         block.dataset.sheetName = sheetName;
         const label = segIdx === 0 ? (activity || "") : `↳ ${activity || ""}`;
-        block.innerHTML = `<div>${escapeHtml(label)}</div><div class="cb-time">${escapeHtml(localStart.time)}–${escapeHtml(localEnd.time)}</div>`;
+        const noteHtml = notes ? `<div class="cb-note">${escapeHtml(notes)}</div>` : "";
+        block.innerHTML = `<div>${escapeHtml(label)}</div><div class="cb-time">${escapeHtml(localStart.time)}–${escapeHtml(localEnd.time)}</div>${noteHtml}`;
         block.title = tooltip;
         block.addEventListener("pointerdown", (e) => e.stopPropagation());
         block.addEventListener("click", (e) => {

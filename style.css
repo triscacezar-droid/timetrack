@@ -333,6 +333,9 @@ select, input[type="number"], input[type="text"], input[type="date"], input[type
   text-align: center;
 }
 .calendar-day-headers .today { color: var(--accent); font-weight: 600; }
+.calendar-day-headers > div:not(:first-child) { cursor: pointer; border-radius: 6px; padding: 2px 0; }
+.calendar-day-headers > div:not(:first-child):hover { background: var(--bg); }
+.calendar-day-headers .selected { background: var(--accent); color: #fff; }
 
 .calendar-scroll {
   border: 1px solid var(--border);

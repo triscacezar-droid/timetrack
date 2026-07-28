@@ -1419,10 +1419,24 @@ function renderTimelineHours() {
 const CALENDAR_HOURS = 24;
 const CALENDAR_HOUR_PX = 32;
 
-// Number of days back from today the visible 7-day window starts, in steps
-// of 7. 0 = current week (ending today), 7 = previous week, etc. Also
-// supports arbitrary day-granularity jumps via shiftCalendarByDays.
+// Number of days back from today the visible window starts. 0 = current
+// window (ending today), 7 = previous week, etc. Also supports arbitrary
+// day-granularity jumps via shiftCalendarByDays.
 let calendarDayOffset = 0;
+
+// How many days are shown at once: 7 or 14, picked by the user via the
+// range-toggle button. Persisted so it survives reloads.
+let calendarRangeDays = parseInt(localStorage.getItem("calendarRangeDays"), 10) === 14 ? 14 : 7;
+
+// The date (YYYY-MM-DD, in the display timezone) whose breakdown is shown
+// in the "Day breakdown" card. Defaults to today; clicking a day header
+// changes it.
+let selectedDayStr = null;
+
+// Cached from the last refreshCalendar() fetch so clicking a different day
+// header can re-render the day/week summaries without refetching.
+let lastCalendarEntries = [];
+let lastCalendarDays = [];
 
 function addDaysToDateStr(dateStr, delta) {
   const d = new Date(`${dateStr}T00:00:00Z`);
@@ -1439,16 +1453,24 @@ function renderCalendarSkeleton() {
   const todayStr = utcToZonedParts(new Date(), tz).date;
   const windowEndStr = addDaysToDateStr(todayStr, -calendarDayOffset);
   const days = [];
-  for (let i = 6; i >= 0; i--) days.push(addDaysToDateStr(windowEndStr, -i));
+  for (let i = calendarRangeDays - 1; i >= 0; i--) days.push(addDaysToDateStr(windowEndStr, -i));
+
+  if (!selectedDayStr || !days.includes(selectedDayStr)) {
+    selectedDayStr = days.includes(todayStr) ? todayStr : days[days.length - 1];
+  }
 
   const headersEl = document.getElementById("calendar-day-headers");
+  headersEl.style.gridTemplateColumns = `44px repeat(${days.length}, 1fr)`;
   headersEl.innerHTML = "";
   headersEl.appendChild(document.createElement("div"));
   for (const dateStr of days) {
     const cell = document.createElement("div");
     const dObj = new Date(`${dateStr}T00:00:00Z`);
     cell.textContent = dObj.toLocaleDateString(undefined, { weekday: "short", day: "numeric", timeZone: "UTC" });
+    cell.dataset.date = dateStr;
     if (dateStr === todayStr) cell.classList.add("today");
+    if (dateStr === selectedDayStr) cell.classList.add("selected");
+    cell.addEventListener("click", () => selectCalendarDay(dateStr));
     headersEl.appendChild(cell);
   }
 
@@ -1457,11 +1479,15 @@ function renderCalendarSkeleton() {
     const startObj = new Date(`${days[0]}T00:00:00Z`);
     const endObj = new Date(`${days[days.length - 1]}T00:00:00Z`);
     const fmt = (d) => d.toLocaleDateString(undefined, { month: "short", day: "numeric", timeZone: "UTC" });
-    rangeLabelEl.textContent = calendarDayOffset === 0 ? `${fmt(startObj)} – ${fmt(endObj)} (this week)` : `${fmt(startObj)} – ${fmt(endObj)}`;
+    rangeLabelEl.textContent = calendarDayOffset === 0 ? `${fmt(startObj)} – ${fmt(endObj)} (this ${calendarRangeDays === 14 ? "2 weeks" : "week"})` : `${fmt(startObj)} – ${fmt(endObj)}`;
   }
+
+  const toggleBtn = document.getElementById("calendar-range-toggle-btn");
+  if (toggleBtn) toggleBtn.textContent = calendarRangeDays === 14 ? "Show 1 week" : "Show 2 weeks";
 
   const body = document.getElementById("calendar-body");
   body.innerHTML = "";
+  body.style.gridTemplateColumns = `44px repeat(${days.length}, 1fr)`;
   body.style.gridTemplateRows = `repeat(${CALENDAR_HOURS}, ${CALENDAR_HOUR_PX}px)`;
 
   for (let h = 0; h < CALENDAR_HOURS; h++) {
@@ -1534,55 +1560,62 @@ function isSleepActivity(name) {
   return (name || "").trim().toLowerCase() === "sleep";
 }
 
-async function refreshToday() {
-  if (!accessToken) return;
-  const tz = getCalendarDisplayTimezone();
-  const todayStr = utcToZonedParts(new Date(), tz).date;
+// Walks all entries once, splitting sleep out from everything else.
+// - totals: activity name -> minutes, for entries whose local start date
+//   satisfies matchFn (sleep excluded unless includeSleep is true).
+// - sleepMinutes: total sleep minutes among matched entries.
+// - lastSleep: most recent sleep entry overall (any date), used for the
+//   "last sleep" line which intentionally ignores the date filter.
+function computeActivityTotals(entries, tz, matchFn, { includeSleep = false } = {}) {
+  const totals = {};
+  let sleepMinutes = 0;
+  let lastSleep = null;
 
-  try {
-    const entries = await fetchMergedRows();
+  for (const { row } of entries) {
+    const [date, activity, start, , duration] = row;
+    if (!date || !start) continue;
+    const startUtc = new Date(`${date}T${start}:00Z`);
+    if (Number.isNaN(startUtc.getTime())) continue;
+    const durationMin = Number(duration) || 0;
+    const localStart = utcToZonedParts(startUtc, tz);
+    const matched = matchFn(localStart.date);
 
-    const totals = {}; // activity name -> minutes logged today
-    let lastSleep = null; // most recent sleep entry, any date
-
-    for (const { row } of entries) {
-      const [date, activity, start, , duration] = row;
-      if (!date || !start) continue;
-      const startUtc = new Date(`${date}T${start}:00Z`);
-      if (Number.isNaN(startUtc.getTime())) continue;
-      const durationMin = Number(duration) || 0;
-
-      if (isSleepActivity(activity)) {
-        if (!lastSleep || startUtc > lastSleep.startUtc) {
-          lastSleep = { startUtc, durationMin };
+    if (isSleepActivity(activity)) {
+      if (!lastSleep || startUtc > lastSleep.startUtc) lastSleep = { startUtc, durationMin };
+      if (matched) {
+        sleepMinutes += durationMin;
+        if (includeSleep) {
+          const key = activity || "(no activity)";
+          totals[key] = (totals[key] || 0) + durationMin;
         }
-        continue; // sleep is never counted in today's activity totals
       }
-
-      const localStart = utcToZonedParts(startUtc, tz);
-      if (localStart.date === todayStr) {
-        const key = activity || "(no activity)";
-        totals[key] = (totals[key] || 0) + durationMin;
-      }
+      continue;
     }
 
-    renderTodaySummary(totals, lastSleep, tz);
-  } catch (err) {
-    setStatus("Could not load today's summary: " + err.message);
+    if (matched) {
+      const key = activity || "(no activity)";
+      totals[key] = (totals[key] || 0) + durationMin;
+    }
   }
+
+  return { totals, sleepMinutes, lastSleep };
 }
 
-function renderTodaySummary(totals, lastSleep, tz) {
-  const container = document.getElementById("today-summary");
+// Renders a sorted activity -> minutes breakdown into containerId, in the
+// same visual style used by the "Today" card. When showTargets is true,
+// activities with a configured target appear first (even at 0 min) using
+// their configured order, followed by everything else busiest-first; when
+// false, everything is simply sorted busiest-first.
+function renderActivitySummary(containerId, totals, { showTargets = true, emptyText = "Nothing logged yet." } = {}) {
+  const container = document.getElementById(containerId);
   container.innerHTML = "";
 
   const activities = loadActivities();
-  const targetByName = Object.fromEntries(
-    activities.filter((a) => a.targetMinutes !== null && a.targetMinutes !== undefined).map((a) => [a.name, a.targetMinutes])
-  );
-  // Targeted activities show even at 0 min today (so an unmet goal is
-  // visible), in the user's configured order; anything else logged today
-  // but without a target follows, busiest first.
+  const targetByName = showTargets
+    ? Object.fromEntries(
+        activities.filter((a) => a.targetMinutes !== null && a.targetMinutes !== undefined).map((a) => [a.name, a.targetMinutes])
+      )
+    : {};
   const targetedNames = activities.map((a) => a.name).filter((name) => name in targetByName);
   const extraNames = Object.keys(totals)
     .filter((name) => !(name in targetByName))
@@ -1592,49 +1625,123 @@ function renderTodaySummary(totals, lastSleep, tz) {
   if (orderedNames.length === 0) {
     const empty = document.createElement("div");
     empty.className = "status";
-    empty.textContent = "Nothing logged yet today.";
+    empty.textContent = emptyText;
     container.appendChild(empty);
-  } else {
-    const untargetedMax = Math.max(1, ...extraNames.map((n) => totals[n] || 0));
-    for (const name of orderedNames) {
-      const minutes = totals[name] || 0;
-      const target = name in targetByName ? targetByName[name] : null;
-      const color = getActivityColor(name);
-      const row = document.createElement("div");
-      row.className = "today-row";
+    return;
+  }
 
-      let pct, barColor, valueText;
-      if (target === null) {
-        pct = Math.round((minutes / untargetedMax) * 100);
-        barColor = color;
-        valueText = formatMinutesShort(minutes);
-      } else if (target === 0) {
-        pct = minutes > 0 ? 100 : 0;
-        barColor = minutes > 0 ? "var(--danger)" : color;
-        valueText = minutes > 0 ? `${formatMinutesShort(minutes)} (target: none)` : "0m (target: none)";
-      } else {
-        pct = Math.min(Math.round((minutes / target) * 100), 100);
-        barColor = minutes > target ? "var(--danger)" : color;
-        valueText = `${formatMinutesShort(minutes)} / ${formatMinutesShort(target)}`;
-      }
+  const untargetedMax = Math.max(1, ...extraNames.map((n) => totals[n] || 0));
+  for (const name of orderedNames) {
+    const minutes = totals[name] || 0;
+    const target = name in targetByName ? targetByName[name] : null;
+    const color = getActivityColor(name);
+    const row = document.createElement("div");
+    row.className = "today-row";
 
-      row.innerHTML = `
-        <div class="today-row-label"><span class="activity-dot" style="background:${escapeHtml(color)}"></span>${escapeHtml(name)}</div>
-        <div class="today-row-bar-wrap"><div class="today-row-bar" style="width:${pct}%;background:${barColor}"></div></div>
-        <div class="today-row-value">${escapeHtml(valueText)}</div>
-      `;
-      container.appendChild(row);
+    let pct, barColor, valueText;
+    if (target === null) {
+      pct = Math.round((minutes / untargetedMax) * 100);
+      barColor = color;
+      valueText = formatMinutesShort(minutes);
+    } else if (target === 0) {
+      pct = minutes > 0 ? 100 : 0;
+      barColor = minutes > 0 ? "var(--danger)" : color;
+      valueText = minutes > 0 ? `${formatMinutesShort(minutes)} (target: none)` : "0m (target: none)";
+    } else {
+      pct = Math.min(Math.round((minutes / target) * 100), 100);
+      barColor = minutes > target ? "var(--danger)" : color;
+      valueText = `${formatMinutesShort(minutes)} / ${formatMinutesShort(target)}`;
     }
+
+    row.innerHTML = `
+      <div class="today-row-label"><span class="activity-dot" style="background:${escapeHtml(color)}"></span>${escapeHtml(name)}</div>
+      <div class="today-row-bar-wrap"><div class="today-row-bar" style="width:${pct}%;background:${barColor}"></div></div>
+      <div class="today-row-value">${escapeHtml(valueText)}</div>
+    `;
+    container.appendChild(row);
+  }
+}
+
+async function refreshToday() {
+  if (!accessToken) return;
+  const tz = getCalendarDisplayTimezone();
+  const todayStr = utcToZonedParts(new Date(), tz).date;
+
+  try {
+    const entries = await fetchMergedRows();
+    const { totals, lastSleep } = computeActivityTotals(entries, tz, (d) => d === todayStr);
+    renderActivitySummary("today-summary", totals, { showTargets: true, emptyText: "Nothing logged yet today." });
+
+    const sleepEl = document.getElementById("today-last-sleep");
+    if (lastSleep) {
+      const localStart = utcToZonedParts(lastSleep.startUtc, tz);
+      const localEnd = utcToZonedParts(new Date(lastSleep.startUtc.getTime() + lastSleep.durationMin * 60000), tz);
+      sleepEl.textContent = `Last sleep: ${formatMinutesShort(lastSleep.durationMin)} (${localStart.date} ${localStart.time}–${localEnd.time})`;
+    } else {
+      sleepEl.textContent = 'Last sleep: no entries logged with an activity named "Sleep" yet.';
+    }
+  } catch (err) {
+    setStatus("Could not load today's summary: " + err.message);
+  }
+}
+
+function selectCalendarDay(dateStr) {
+  selectedDayStr = dateStr;
+  const headersEl = document.getElementById("calendar-day-headers");
+  if (headersEl) {
+    [...headersEl.children].forEach((cell) => cell.classList.toggle("selected", cell.dataset.date === dateStr));
+  }
+  renderDaySummary();
+  renderWeekSummary();
+}
+
+function toggleCalendarRange() {
+  calendarRangeDays = calendarRangeDays === 14 ? 7 : 14;
+  localStorage.setItem("calendarRangeDays", String(calendarRangeDays));
+  refreshCalendar();
+}
+
+function renderDaySummary() {
+  const tz = getCalendarDisplayTimezone();
+  const todayStr = utcToZonedParts(new Date(), tz).date;
+  const dateStr = selectedDayStr || todayStr;
+
+  const titleEl = document.getElementById("day-summary-title");
+  if (titleEl) {
+    const dObj = new Date(`${dateStr}T00:00:00Z`);
+    const label = dObj.toLocaleDateString(undefined, { weekday: "long", month: "short", day: "numeric", timeZone: "UTC" });
+    titleEl.textContent = dateStr === todayStr ? `Today (${label})` : label;
   }
 
-  const sleepEl = document.getElementById("today-last-sleep");
-  if (lastSleep) {
-    const localStart = utcToZonedParts(lastSleep.startUtc, tz);
-    const localEnd = utcToZonedParts(new Date(lastSleep.startUtc.getTime() + lastSleep.durationMin * 60000), tz);
-    sleepEl.textContent = `Last sleep: ${formatMinutesShort(lastSleep.durationMin)} (${localStart.date} ${localStart.time}–${localEnd.time})`;
-  } else {
-    sleepEl.textContent = 'Last sleep: no entries logged with an activity named "Sleep" yet.';
+  const { totals, sleepMinutes } = computeActivityTotals(lastCalendarEntries, tz, (d) => d === dateStr);
+  renderActivitySummary("day-summary", totals, { showTargets: true, emptyText: "Nothing logged that day." });
+
+  const sleepEl = document.getElementById("day-summary-sleep");
+  if (sleepEl) {
+    sleepEl.textContent = sleepMinutes > 0 ? `Sleep: ${formatMinutesShort(sleepMinutes)}` : "Sleep: none logged that day.";
   }
+}
+
+function renderWeekSummary() {
+  const tz = getCalendarDisplayTimezone();
+  const days = lastCalendarDays;
+  if (!days.length) return;
+
+  const titleEl = document.getElementById("week-summary-title");
+  if (titleEl) {
+    const startObj = new Date(`${days[0]}T00:00:00Z`);
+    const endObj = new Date(`${days[days.length - 1]}T00:00:00Z`);
+    const fmt = (d) => d.toLocaleDateString(undefined, { month: "short", day: "numeric", timeZone: "UTC" });
+    titleEl.textContent = `Totals: ${fmt(startObj)} – ${fmt(endObj)}`;
+  }
+
+  const daySet = new Set(days);
+  const { totals } = computeActivityTotals(lastCalendarEntries, tz, (d) => daySet.has(d), { includeSleep: true });
+  renderActivitySummary("week-summary", totals, { showTargets: false, emptyText: "Nothing logged in this range." });
+
+  const totalMin = Object.values(totals).reduce((a, b) => a + b, 0);
+  const totalEl = document.getElementById("week-summary-total");
+  if (totalEl) totalEl.textContent = `Total tracked: ${formatMinutesShort(totalMin)} over ${days.length} day${days.length === 1 ? "" : "s"}`;
 }
 
 function shiftCalendarByDays(deltaDays) {
@@ -1656,6 +1763,8 @@ async function refreshCalendar() {
 
   try {
     const entries = await fetchMergedRows();
+    lastCalendarEntries = entries;
+    lastCalendarDays = days;
     entries.forEach(({ row, rowNumber, sheetName }) => {
       const [date, activity, start, , duration, notes, , quality] = row;
       if (!date || !start) return;
@@ -1699,6 +1808,9 @@ async function refreshCalendar() {
         dayCols[idx].appendChild(block);
       });
     });
+
+    renderDaySummary();
+    renderWeekSummary();
   } catch (err) {
     setStatus("Could not load calendar: " + err.message);
   }
@@ -1996,6 +2108,7 @@ document.addEventListener("DOMContentLoaded", () => {
   document.getElementById("calendar-prev-month-btn").onclick = () => shiftCalendarByDays(30);
   document.getElementById("calendar-next-month-btn").onclick = () => shiftCalendarByDays(-30);
   document.getElementById("calendar-today-btn").onclick = jumpCalendarToThisWeek;
+  document.getElementById("calendar-range-toggle-btn").onclick = toggleCalendarRange;
   document.getElementById("today-refresh-btn").onclick = refreshToday;
 
   document.getElementById("start-btn").onclick = startTimer;

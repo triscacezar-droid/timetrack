@@ -188,13 +188,30 @@
             <button id="calendar-next-week-btn" title="Forward 1 week">››</button>
             <button id="calendar-next-month-btn" title="Forward 30 days">»</button>
           </div>
+          <button id="calendar-range-toggle-btn" title="Toggle between 1 and 2 week view"></button>
         </div>
-        <div class="hint">Click or drag on the grid to start a new entry there.</div>
+        <div class="hint">Click or drag on the grid to start a new entry there. Click a day's header to see its breakdown below.</div>
         <div class="calendar-day-headers" id="calendar-day-headers"></div>
         <div class="calendar-scroll">
           <div class="calendar-body" id="calendar-body"></div>
         </div>
         <div id="calendar-time-tooltip" class="calendar-tooltip hidden"></div>
+      </section>
+
+      <section class="card day-summary-card">
+        <div class="log-header">
+          <h2 id="day-summary-title">Day breakdown</h2>
+        </div>
+        <div id="day-summary" class="today-summary"></div>
+        <div class="hint" id="day-summary-sleep"></div>
+      </section>
+
+      <section class="card week-summary-card">
+        <div class="log-header">
+          <h2 id="week-summary-title">Week totals</h2>
+        </div>
+        <div id="week-summary" class="today-summary"></div>
+        <div class="hint" id="week-summary-total"></div>
       </section>
 
       <section class="card log-card">

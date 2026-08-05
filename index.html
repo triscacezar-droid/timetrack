@@ -85,6 +85,11 @@
           <button id="manage-presets-btn" title="Manage bell presets">⚙</button>
         </div>
 
+        <div class="field-row thoughts-field-row">
+          <label>Thoughts</label>
+          <div class="thought-chips" id="timer-thoughts"></div>
+        </div>
+
         <div class="timer-controls">
           <button id="start-btn" class="primary">Start</button>
           <button id="pause-btn" class="hidden">Pause</button>
@@ -108,6 +113,19 @@
         </div>
         <div id="today-summary" class="today-summary"></div>
         <div class="hint" id="today-last-sleep"></div>
+      </section>
+
+      <section class="card thoughts-card">
+        <div class="log-header">
+          <h2>Thoughts</h2>
+          <button id="thoughts-refresh-btn">Refresh</button>
+        </div>
+        <div class="hint">Long-term things you're working toward (e.g. "Level up for Partcl", "Become enlightened"). Assign them to any timer or manual entry below to track what your time is going toward.</div>
+        <div class="thought-chips" id="thoughts-list"></div>
+        <div class="field-row">
+          <input type="text" id="new-thought-input" placeholder="New thought (e.g. Level up for Partcl)" />
+          <button id="add-thought-btn">Add</button>
+        </div>
       </section>
 
       <section class="card manual-card">
@@ -163,6 +181,10 @@
           <div class="field-row">
             <label>Quality (optional)</label>
             <div class="quality-buttons" id="manual-quality-buttons"></div>
+          </div>
+          <div class="field-row thoughts-field-row">
+            <label>Thoughts</label>
+            <div class="thought-chips" id="manual-thoughts"></div>
           </div>
           <button type="submit" class="primary">Add entry</button>
         </form>

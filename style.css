@@ -562,6 +562,44 @@ select, input[type="number"], input[type="text"], input[type="date"], input[type
   width: 20px;
   height: 20px;
   font-size: 10px;
+}
+
+.thoughts-field-row { align-items: flex-start; }
+.thought-chips { display: flex; gap: 6px; flex-wrap: wrap; }
+.thought-chips:empty::after { content: "No thoughts yet — add one above."; color: var(--muted); font-size: 13px; }
+.thought-chips button {
+  border-radius: 999px;
+  padding: 5px 12px;
+  font-size: 13px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.thought-chips button.selected {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+}
+.thought-chips .thought-delete {
+  border: none;
+  background: none;
+  color: inherit;
+  padding: 0;
+  font-size: 12px;
+  opacity: 0.7;
+  cursor: pointer;
+}
+.thought-chips .thought-delete:hover { opacity: 1; }
+.log-entry .thoughts-tags { margin-top: 2px; }
+.log-entry .thought-tag {
+  display: inline-block;
+  font-size: 11px;
+  padding: 1px 8px;
+  border-radius: 999px;
+  background: var(--accent-muted, rgba(91, 140, 255, 0.15));
+  color: var(--accent);
+  margin: 2px 4px 0 0;
+}
   border-radius: 50%;
 }
 

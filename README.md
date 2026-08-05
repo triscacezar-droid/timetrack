@@ -226,6 +226,24 @@ timer for:
 - **Reset to now** — snaps start date/time back to the current moment and
   duration back to 30 minutes.
 
+### Thoughts
+
+The "Thoughts" card lets you define long-term things you're working toward —
+e.g. "Level up for Partcl", "Become enlightened" — and tag any timer or
+manual entry with any number of them, so you can later see what your logged
+time actually went toward.
+
+Add a thought by typing a name and hitting **Add** (or Enter). Thoughts live
+in their own sheet tab (auto-created on first use, named "Thoughts") so they
+sync across every device signed in to the same Sheet — unlike Activities and
+Bell presets, which are per-device `localStorage`. Click a thought chip in
+the Timer or Manual entry sections to select it for that entry (click again
+to deselect); a session can be tagged with as many thoughts as apply. Tags
+show up under each entry in Recent entries, and can be changed there too
+(hit ✏️ to edit). Removing a thought from the list (✕ on its chip) only
+stops it from appearing in the picker — it doesn't untag entries already
+using it.
+
 ### Managing activities
 
 Click the gear icon (⚙) next to the Activity dropdown to add or remove
@@ -318,10 +336,13 @@ and the calendar.
 - All data lives in your Google Sheet — this app has no database of its own.
   Feel free to add charts/pivot tables directly in the Sheet.
 - Sheet columns: `Date, Activity, Start, End, Duration (min), Notes, Timezone,
-  Quality`. Date/Start/End are always UTC. The app auto-adds any missing
+  Quality, Thoughts`. Date/Start/End are always UTC, and Thoughts is a
+  comma-separated list of thought names. The app auto-adds any missing
   header cells, so if you started using an older version of this app (with
   only `Date, Activity, Start, End, Duration (min), Notes`), the new columns
-  get appended without disturbing your existing rows.
+  get appended without disturbing your existing rows. A separate "Thoughts"
+  sheet tab (Name, Created) is auto-created the first time you use the
+  feature.
 - Sign-in uses Google Identity Services' implicit token flow entirely in the
   browser; the access token is kept in memory only (not persisted), so
   you'll sign in again each time you reload the page.

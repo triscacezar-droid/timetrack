@@ -178,6 +178,7 @@ let timer = {
   totalSeconds: 0,
   remainingSeconds: 0,
   activity: null,
+  thoughts: "", // comma-separated thought names selected at Start, snapshotted so later chip clicks don't retag the running entry
   startedAt: null, // Date when the current run began (for logging real start time)
   intervalId: null,
   pausedAt: null, // Date when pause began, used to shift startedAt forward on resume
@@ -501,7 +502,161 @@ function renderRuleRow(preset, presets, rule, ruleIdx) {
   return row;
 }
 
+// ---------- Thoughts (long-term goals, stored in their own sheet tab) ----------
+
+// Long-term goals like "Level up for Partcl" or "Become enlightened" live in
+// their own sheet tab (columns: Name, Created) so they sync across devices
+// the same way logged entries do. Any entry (timer or manual) can be tagged
+// with zero or more of them; the assignment is stored as a comma-separated
+// list of names in a "Thoughts" column appended to the main log sheet(s).
+const THOUGHTS_SHEET_NAME = "Thoughts";
+const THOUGHTS_HEADER_ROW = ["Name", "Created"];
+
+let cachedThoughts = []; // [{ name, rowNumber }]
+let thoughtsSheetId = null;
+
+async function ensureThoughtsSheet() {
+  if (thoughtsSheetId !== null) return thoughtsSheetId;
+  const data = await sheetsFetch(`?fields=${encodeURIComponent("sheets.properties")}`);
+  let sheet = (data.sheets || []).find((s) => s.properties.title === THOUGHTS_SHEET_NAME);
+  if (!sheet) {
+    const created = await sheetsFetch(`:batchUpdate`, {
+      method: "POST",
+      body: JSON.stringify({ requests: [{ addSheet: { properties: { title: THOUGHTS_SHEET_NAME } } }] }),
+    });
+    sheet = created.replies[0].addSheet;
+    await sheetsFetch(`/values/${encodeURIComponent(`${THOUGHTS_SHEET_NAME}!A1:B1`)}?valueInputOption=RAW`, {
+      method: "PUT",
+      body: JSON.stringify({ range: `${THOUGHTS_SHEET_NAME}!A1:B1`, values: [THOUGHTS_HEADER_ROW] }),
+    });
+  }
+  thoughtsSheetId = sheet.properties.sheetId;
+  cachedSheetIds[THOUGHTS_SHEET_NAME] = thoughtsSheetId;
+  return thoughtsSheetId;
+}
+
+async function fetchThoughts() {
+  await ensureThoughtsSheet();
+  const data = await sheetsFetch(`/values/${encodeURIComponent(`${THOUGHTS_SHEET_NAME}!A2:A`)}`);
+  const rows = data.values || [];
+  cachedThoughts = rows
+    .map((row, i) => ({ name: (row[0] || "").trim(), rowNumber: i + 2 }))
+    .filter((t) => t.name);
+  return cachedThoughts;
+}
+
+async function addThought(name) {
+  await ensureThoughtsSheet();
+  await sheetsFetch(`/values/${encodeURIComponent(`${THOUGHTS_SHEET_NAME}!A:B`)}:append?valueInputOption=USER_ENTERED`, {
+    method: "POST",
+    body: JSON.stringify({ range: `${THOUGHTS_SHEET_NAME}!A:B`, values: [[name, formatDate(new Date())]] }),
+  });
+}
+
+async function deleteThought(rowNumber) {
+  const sheetId = await ensureThoughtsSheet();
+  await sheetsFetch(`:batchUpdate`, {
+    method: "POST",
+    body: JSON.stringify({
+      requests: [{ deleteDimension: { range: { sheetId, dimension: "ROWS", startIndex: rowNumber - 1, endIndex: rowNumber } } }],
+    }),
+  });
+}
+
+// Renders a thought list as toggleable chips into `containerId`. Existing
+// thoughts (management card) get a delete (×) button; assignment widgets
+// (timer/manual/edit forms) don't — pass `selectable: true` for those so
+// clicking a chip toggles selection instead of just showing the name.
+function renderThoughtChips(containerId, { selectable = false, selectedNames = [], onDelete = null } = {}) {
+  const container = document.getElementById(containerId);
+  if (!container) return;
+  container.innerHTML = "";
+  for (const thought of cachedThoughts) {
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.textContent = thought.name;
+    btn.dataset.name = thought.name;
+    if (selectable) {
+      if (selectedNames.includes(thought.name)) btn.classList.add("selected");
+      btn.onclick = () => btn.classList.toggle("selected");
+    }
+    if (onDelete) {
+      const del = document.createElement("span");
+      del.className = "thought-delete";
+      del.textContent = "✕";
+      del.title = `Remove "${thought.name}" from the thoughts list (doesn't untag past entries)`;
+      del.onclick = (e) => {
+        e.stopPropagation();
+        onDelete(thought);
+      };
+      btn.appendChild(del);
+    }
+    container.appendChild(btn);
+  }
+}
+
+function getSelectedThoughtNames(containerId) {
+  const container = document.getElementById(containerId);
+  if (!container) return [];
+  return [...container.querySelectorAll("button.selected")].map((b) => b.dataset.name);
+}
+
+// Re-renders every place thought chips appear, preserving whatever's
+// currently selected in the assignment widgets (a refresh shouldn't clear
+// what you were about to log).
+function renderAllThoughtChips() {
+  renderThoughtChips("thoughts-list", {
+    onDelete: async (thought) => {
+      const ok = window.confirm(`Remove the thought "${thought.name}"? Entries already tagged with it keep the tag text, but it'll no longer appear in the picker.`);
+      if (!ok) return;
+      try {
+        await deleteThought(thought.rowNumber);
+        await refreshThoughts();
+      } catch (err) {
+        setStatus("Failed to remove thought: " + err.message);
+      }
+    },
+  });
+  renderThoughtChips("timer-thoughts", { selectable: true, selectedNames: getSelectedThoughtNames("timer-thoughts") });
+  renderThoughtChips("manual-thoughts", { selectable: true, selectedNames: getSelectedThoughtNames("manual-thoughts") });
+}
+
+async function refreshThoughts() {
+  if (!accessToken) return;
+  try {
+    await fetchThoughts();
+    renderAllThoughtChips();
+  } catch (err) {
+    setStatus("Could not load thoughts: " + err.message);
+  }
+}
+
 // ---------- Google auth ----------
+
+// Google's access tokens expire after ~1h; without proactively refreshing,
+// a long-running countdown (or just an idle tab) hits a 401 mid-session and
+// silently stops writing to the Sheet. tokenRefreshTimer re-requests a token
+// a few minutes before expiry using prompt:"none" (via the hidden
+// `signedInOnce` gate below), so it never shows a popup or interrupts
+// whatever's running — the callback just swaps `accessToken` in place.
+let tokenRefreshTimer = null;
+let signedInOnce = false;
+let pendingTokenWaiters = [];
+
+// Resolves once the next token (re)fetch completes, success or failure —
+// used by sheetsFetch's 401 retry to wait for a fresh token instead of
+// racing the async callback.
+function waitForNextToken() {
+  return new Promise((resolve) => pendingTokenWaiters.push(resolve));
+}
+
+function scheduleTokenRefresh(expiresInSeconds) {
+  clearTimeout(tokenRefreshTimer);
+  const refreshInMs = Math.max((Number(expiresInSeconds) || 3600) - 300, 30) * 1000;
+  tokenRefreshTimer = setTimeout(() => {
+    if (tokenClient) tokenClient.requestAccessToken({ prompt: "" });
+  }, refreshInMs);
+}
 
 function initGoogleAuth() {
   if (!window.google || !google.accounts || !google.accounts.oauth2) {
@@ -513,11 +668,24 @@ function initGoogleAuth() {
     scope: "https://www.googleapis.com/auth/spreadsheets",
     callback: (resp) => {
       if (resp.error) {
-        setStatus("Sign-in failed: " + resp.error);
+        // A silent background refresh can fail (e.g. revoked consent, no
+        // session cookie) without the user having done anything wrong; only
+        // surface it as a sign-in failure the first time, since after that
+        // it just means the next 401 retry will re-prompt instead.
+        if (!signedInOnce) setStatus("Sign-in failed: " + resp.error);
+        const waiters = pendingTokenWaiters;
+        pendingTokenWaiters = [];
+        waiters.forEach((resolve) => resolve());
         return;
       }
       accessToken = resp.access_token;
-      onSignedIn();
+      scheduleTokenRefresh(resp.expires_in);
+      const firstSignIn = !signedInOnce;
+      signedInOnce = true;
+      if (firstSignIn) onSignedIn();
+      const waiters = pendingTokenWaiters;
+      pendingTokenWaiters = [];
+      waiters.forEach((resolve) => resolve());
     },
   });
 }
@@ -535,6 +703,7 @@ function onSignedIn() {
   refreshLog();
   refreshCalendar();
   refreshToday();
+  refreshThoughts();
 }
 
 function signOut() {
@@ -542,12 +711,17 @@ function signOut() {
     google.accounts.oauth2.revoke(accessToken, () => {});
   }
   accessToken = null;
+  signedInOnce = false;
+  clearTimeout(tokenRefreshTimer);
   setSignedInUI(false);
 }
 
 // ---------- Sheets API ----------
 
-async function sheetsFetch(path, options = {}) {
+// Safety net alongside the proactive refresh timer: if a request still hits
+// a stale/expired token (e.g. the tab was suspended through the refresh
+// point), silently fetch a new one and retry once before giving up.
+async function sheetsFetch(path, options = {}, isRetry = false) {
   if (!accessToken) throw new Error("Not signed in");
   const url = `https://sheets.googleapis.com/v4/spreadsheets/${CONFIG.SPREADSHEET_ID}${path}`;
   const res = await fetch(url, {
@@ -558,6 +732,12 @@ async function sheetsFetch(path, options = {}) {
       ...(options.headers || {}),
     },
   });
+  if (res.status === 401 && !isRetry && tokenClient) {
+    const waitPromise = waitForNextToken();
+    tokenClient.requestAccessToken({ prompt: "" });
+    await waitPromise;
+    return sheetsFetch(path, options, true);
+  }
   if (!res.ok) {
     const body = await res.text();
     throw new Error(`Sheets API error ${res.status}: ${body}`);
@@ -565,14 +745,16 @@ async function sheetsFetch(path, options = {}) {
   return res.json();
 }
 
-// Columns: Date, Activity, Start, End, Duration (min), Notes, Timezone, Quality.
-// Date/Start/End are always stored in UTC. Timezone/Quality were added after
-// Notes so pre-existing rows/headers stay valid — we only backfill the
-// missing header cells rather than reordering anything.
-const HEADER_ROW = ["Date", "Activity", "Start", "End", "Duration (min)", "Notes", "Timezone", "Quality"];
+// Columns: Date, Activity, Start, End, Duration (min), Notes, Timezone,
+// Quality, Thoughts. Date/Start/End are always stored in UTC. Timezone/
+// Quality/Thoughts were added after Notes so pre-existing rows/headers stay
+// valid — we only backfill the missing header cells rather than reordering
+// anything. Thoughts is a comma-separated list of long-term goal names (see
+// the Thoughts section above) an entry has been tagged with.
+const HEADER_ROW = ["Date", "Activity", "Start", "End", "Duration (min)", "Notes", "Timezone", "Quality", "Thoughts"];
 
 async function ensureHeaderRow() {
-  const range = `${CONFIG.SHEET_NAME}!A1:H1`;
+  const range = `${CONFIG.SHEET_NAME}!A1:I1`;
   const data = await sheetsFetch(`/values/${encodeURIComponent(range)}`);
   const row = (data.values && data.values[0]) || [];
   if (row.length === 0) {
@@ -581,7 +763,7 @@ async function ensureHeaderRow() {
       body: JSON.stringify({ range, values: [HEADER_ROW] }),
     });
   } else if (row.length < HEADER_ROW.length) {
-    const missingRange = `${CONFIG.SHEET_NAME}!${String.fromCharCode(65 + row.length)}1:H1`;
+    const missingRange = `${CONFIG.SHEET_NAME}!${String.fromCharCode(65 + row.length)}1:I1`;
     await sheetsFetch(`/values/${encodeURIComponent(missingRange)}?valueInputOption=RAW`, {
       method: "PUT",
       body: JSON.stringify({ range: missingRange, values: [HEADER_ROW.slice(row.length)] }),
@@ -592,14 +774,14 @@ async function ensureHeaderRow() {
 // Returns the row number the entry landed on (parsed from the Sheets API
 // response), so a quality rating chosen after the fact can be patched in
 // without re-sending the whole row.
-async function appendEntry({ date, activity, start, end, durationMin, notes, timezone, quality }) {
+async function appendEntry({ date, activity, start, end, durationMin, notes, timezone, quality, thoughts }) {
   await ensureHeaderRow();
-  const range = `${CONFIG.SHEET_NAME}!A:H`;
+  const range = `${CONFIG.SHEET_NAME}!A:I`;
   const response = await sheetsFetch(`/values/${encodeURIComponent(range)}:append?valueInputOption=USER_ENTERED`, {
     method: "POST",
     body: JSON.stringify({
       range,
-      values: [[date, activity, start, end, durationMin, notes || "", timezone || "", quality ?? ""]],
+      values: [[date, activity, start, end, durationMin, notes || "", timezone || "", quality ?? "", thoughts || ""]],
     }),
   });
   setStatus(`Logged "${activity}" — ${durationMin} min.`);
@@ -609,7 +791,7 @@ async function appendEntry({ date, activity, start, end, durationMin, notes, tim
   return { rowNumber: match ? parseInt(match[1]) : null };
 }
 
-async function updateEntryFull(sheetName, rowNumber, { date, activity, start, end, durationMin, notes, timezone }) {
+async function updateEntryFull(sheetName, rowNumber, { date, activity, start, end, durationMin, notes, timezone, thoughts }) {
   const range = `${sheetName}!A${rowNumber}:F${rowNumber}`;
   await sheetsFetch(`/values/${encodeURIComponent(range)}?valueInputOption=USER_ENTERED`, {
     method: "PUT",
@@ -620,6 +802,7 @@ async function updateEntryFull(sheetName, rowNumber, { date, activity, start, en
     method: "PUT",
     body: JSON.stringify({ range: tzRange, values: [[timezone || ""]] }),
   });
+  if (thoughts !== undefined) await updateEntryThoughts(sheetName, rowNumber, thoughts);
 }
 
 async function updateEntryQuality(sheetName, rowNumber, quality) {
@@ -628,6 +811,15 @@ async function updateEntryQuality(sheetName, rowNumber, quality) {
   await sheetsFetch(`/values/${encodeURIComponent(range)}?valueInputOption=USER_ENTERED`, {
     method: "PUT",
     body: JSON.stringify({ range, values: [[quality]] }),
+  });
+}
+
+async function updateEntryThoughts(sheetName, rowNumber, thoughts) {
+  if (!rowNumber) return;
+  const range = `${sheetName}!I${rowNumber}:I${rowNumber}`;
+  await sheetsFetch(`/values/${encodeURIComponent(range)}?valueInputOption=USER_ENTERED`, {
+    method: "PUT",
+    body: JSON.stringify({ range, values: [[thoughts || ""]] }),
   });
 }
 
@@ -694,13 +886,13 @@ function initSecondarySheetToggle() {
   };
 }
 
-// Fetches A2:H from every configured sheet and tags each row with the sheet
+// Fetches A2:I from every configured sheet and tags each row with the sheet
 // it came from plus its row number within that sheet, so edits/deletes can
 // be routed back to the right tab.
 async function fetchMergedRows() {
   const results = await Promise.all(
     readSheetNames().map(async (sheetName) => {
-      const range = `${sheetName}!A2:H`;
+      const range = `${sheetName}!A2:I`;
       const data = await sheetsFetch(`/values/${encodeURIComponent(range)}`);
       const rows = data.values || [];
       return rows.map((row, i) => ({ row, rowNumber: i + 2, sheetName }));
@@ -726,7 +918,7 @@ async function fetchRecentEntries(limit = 50) {
 // re-logging it. `date`/`start`/`end`/`timezone` are the already-localized
 // display values shown in the list, not the raw UTC values stored in the
 // sheet — they get converted back to UTC on save.
-function renderLogEntryEditForm(div, { sheetName, rowNumber, activity, date, start, end, timezone, notes }) {
+function renderLogEntryEditForm(div, { sheetName, rowNumber, activity, date, start, end, timezone, notes, thoughts }) {
   div.innerHTML = "";
   div.classList.add("log-entry-editing");
 
@@ -787,6 +979,13 @@ function renderLogEntryEditForm(div, { sheetName, rowNumber, activity, date, sta
   row3.className = "log-entry-edit-row";
   row3.append(notesInput);
 
+  const thoughtsRow = document.createElement("div");
+  thoughtsRow.className = "log-entry-edit-row";
+  const thoughtsWrap = document.createElement("div");
+  thoughtsWrap.className = "thought-chips";
+  thoughtsWrap.id = `edit-thoughts-${sheetName}-${rowNumber}`;
+  thoughtsRow.appendChild(thoughtsWrap);
+
   const btnRow = document.createElement("div");
   btnRow.className = "log-entry-edit-row";
   const saveBtn = document.createElement("button");
@@ -799,8 +998,12 @@ function renderLogEntryEditForm(div, { sheetName, rowNumber, activity, date, sta
   cancelBtn.onclick = () => refreshLog();
   btnRow.append(saveBtn, cancelBtn);
 
-  form.append(row1, row2, row3, btnRow);
+  form.append(row1, row2, row3, thoughtsRow, btnRow);
   div.appendChild(form);
+  renderThoughtChips(thoughtsWrap.id, {
+    selectable: true,
+    selectedNames: (thoughts || "").split(",").map((t) => t.trim()).filter(Boolean),
+  });
 
   form.onsubmit = async (e) => {
     e.preventDefault();
@@ -823,6 +1026,7 @@ function renderLogEntryEditForm(div, { sheetName, rowNumber, activity, date, sta
         durationMin,
         notes: notesInput.value,
         timezone: tzSelect.value,
+        thoughts: getSelectedThoughtNames(thoughtsWrap.id).join(", "),
       });
       setStatus("Entry updated.");
       refreshLog();
@@ -845,8 +1049,9 @@ async function refreshLog() {
       return;
     }
     for (const { row, rowNumber, sheetName } of entries) {
-      const [date, activity, start, end, duration, notes, timezone, quality] = row;
+      const [date, activity, start, end, duration, notes, timezone, quality, thoughts] = row;
       const tz = timezone || getBrowserTimezone();
+      const thoughtNames = (thoughts || "").split(",").map((t) => t.trim()).filter(Boolean);
       let displayDate = date, displayStart = start, displayEnd = end;
       try {
         const startUtc = new Date(`${date}T${start}:00Z`);
@@ -865,9 +1070,13 @@ async function refreshLog() {
       div.dataset.sheetName = sheetName;
 
       const infoDiv = document.createElement("div");
+      const thoughtTagsHtml = thoughtNames.length
+        ? `<div class="thoughts-tags">${thoughtNames.map((t) => `<span class="thought-tag">${escapeHtml(t)}</span>`).join("")}</div>`
+        : "";
       infoDiv.innerHTML = `
         <div class="activity"><span class="activity-dot" style="background:${escapeHtml(getActivityColor(activity))}"></span>${escapeHtml(activity || "")}</div>
         <div class="meta">${escapeHtml(displayDate || "")} · ${escapeHtml(displayStart || "")}–${escapeHtml(displayEnd || "")}${tz ? " · " + escapeHtml(tz) : ""}${notes ? " · " + escapeHtml(notes) : ""}</div>
+        ${thoughtTagsHtml}
       `;
 
       const rightDiv = document.createElement("div");
@@ -892,6 +1101,7 @@ async function refreshLog() {
           end: displayEnd.replace(" (+1d)", ""),
           timezone: tz,
           notes,
+          thoughts,
         });
       const deleteBtn = document.createElement("button");
       deleteBtn.type = "button";
@@ -1052,6 +1262,7 @@ function startTimer() {
   }
   timer.state = "running";
   timer.activity = activity;
+  timer.thoughts = getSelectedThoughtNames("timer-thoughts").join(", ");
   timer.totalSeconds = totalSeconds;
   timer.remainingSeconds = timer.totalSeconds;
   timer.startedAt = new Date();
@@ -1093,6 +1304,7 @@ async function beginLiveEntry() {
       notes: "",
       timezone,
       quality: "",
+      thoughts: timer.thoughts,
     });
     timer.liveRowNumber = rowNumber;
     refreshCalendar();
@@ -1998,6 +2210,7 @@ function resetManualFormToDefaults() {
   document.getElementById("manual-notes").value = "";
   manualSelectedQuality = null;
   document.querySelectorAll("#manual-quality-buttons button").forEach((b) => b.classList.remove("selected"));
+  document.querySelectorAll("#manual-thoughts button").forEach((b) => b.classList.remove("selected"));
   syncManualTimeFields("start");
   renderTimeline();
 }
@@ -2010,6 +2223,7 @@ async function handleManualSubmit(e) {
   const startStr = document.getElementById("manual-start").value;
   const durationMin = parseInt(document.getElementById("manual-duration").value) || 0;
   const notes = document.getElementById("manual-notes").value;
+  const thoughts = getSelectedThoughtNames("manual-thoughts").join(", ");
 
   if (!durationMin || durationMin <= 0) {
     setStatus("Enter a valid duration.");
@@ -2033,6 +2247,7 @@ async function handleManualSubmit(e) {
       notes,
       timezone,
       quality: manualSelectedQuality ?? "",
+      thoughts,
     });
     resetManualFormToDefaults();
     refreshCalendar();
@@ -2110,6 +2325,29 @@ document.addEventListener("DOMContentLoaded", () => {
   document.getElementById("calendar-today-btn").onclick = jumpCalendarToThisWeek;
   document.getElementById("calendar-range-toggle-btn").onclick = toggleCalendarRange;
   document.getElementById("today-refresh-btn").onclick = refreshToday;
+  document.getElementById("thoughts-refresh-btn").onclick = refreshThoughts;
+  document.getElementById("add-thought-btn").onclick = async () => {
+    const input = document.getElementById("new-thought-input");
+    const name = input.value.trim();
+    if (!name) return;
+    if (cachedThoughts.some((t) => t.name === name)) {
+      setStatus(`"${name}" is already in your thoughts list.`);
+      return;
+    }
+    try {
+      await addThought(name);
+      input.value = "";
+      await refreshThoughts();
+    } catch (err) {
+      setStatus("Failed to add thought: " + err.message);
+    }
+  };
+  document.getElementById("new-thought-input").addEventListener("keydown", (e) => {
+    if (e.key === "Enter") {
+      e.preventDefault();
+      document.getElementById("add-thought-btn").click();
+    }
+  });
 
   document.getElementById("start-btn").onclick = startTimer;
   document.getElementById("pause-btn").onclick = pauseTimer;
